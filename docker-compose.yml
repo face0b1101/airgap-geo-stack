@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  my-container:
+    image: face0b1101/python-uv-boilerplate:0.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        DOCKER_BUILDKIT: 1
+    container_name: my-container
+    env_file:
+      - .env
+    restart: unless-stopped
