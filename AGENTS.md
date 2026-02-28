@@ -96,7 +96,7 @@ ______________________________________________________________________
 | `make precommit` | Run all pre-commit hooks                 |
 | `make run`       | Run the sample `hello` entry point       |
 | `make check`     | Lint + test combined                     |
-| `make prepare`   | Download and process data for all Docker services (`ARGS` forwarded to `docker/prepare-data.sh`) |
+| `make prepare`   | Download and process data for all Docker services (`ARGS` forwarded to `prepare-data` CLI) |
 
 **Key conventions**:
 

@@ -29,27 +29,69 @@ ______________________________________________________________________
 ## Data Preparation (required before first run)
 
 All services except postcodes.io require data to be downloaded and/or processed
-before the Docker stack will start. A unified preparation script handles everything:
+before the Docker stack will start. A Python CLI (powered by Typer + Rich) handles
+everything with progress bars and clear status output:
 
 ```bash
 make prepare                             # download and process all services
 make prepare ARGS="--cleanup"            # same, but remove PBF copies from OSRM dirs afterwards
 make prepare ARGS="--skip-photon"        # skip the ~60 GB Photon download
+uv run prepare-data --help               # see all available options
 ```
 
 Individual services can be skipped with `--skip-nominatim`, `--skip-osrm`, or `--skip-photon`.
 
-| Service          | What it needs                                                   | Approx. size               | Time                              |
-| ---------------- | --------------------------------------------------------------- | -------------------------- | --------------------------------- |
+| Service          | What it needs                                                                  | Approx. size               | Time                              |
+| ---------------- | ------------------------------------------------------------------------------ | -------------------------- | --------------------------------- |
 | **Nominatim**    | PBF download (set `PBF_URL`/`PBF_REGION`); import on first `docker compose up` | ~1.2 GB download           | minutes (download), 2–6 hr import |
-| **OSRM**         | PBF download + extract/partition/customise per profile          | ~1.2 GB + ~10 GB processed | 1–3 hours                         |
-| **Photon**       | European dataset download                                       | ~60 GB                     | hours (network-dependent)         |
-| **postcodes.io** | None — data is pre-loaded in the DB image                       | —                          | —                                 |
+| **OSRM**         | PBF download + extract/partition/customise per profile                         | ~1.2 GB + ~10 GB processed | 1–3 hours                         |
+| **Photon**       | European dataset download                                                      | ~60 GB                     | hours (network-dependent)         |
+| **postcodes.io** | None — data is pre-loaded in the DB image                                      | —                          | —                                 |
 
 See individual service READMEs for details:
 [`docker/nominatim/README.md`](docker/nominatim/README.md),
 [`docker/osrm/README.md`](docker/osrm/README.md),
 [`docker/photon/README.md`](docker/photon/README.md).
+
+______________________________________________________________________
+
+## Docker Services
+
+All services are defined in a single [`docker/docker-compose.yml`](docker/docker-compose.yml)
+and controlled via **profiles** so you can start only what you need.
+
+### Profiles
+
+| Profile      | Services included                                                    |
+| ------------ | -------------------------------------------------------------------- |
+| `nominatim`  | Nominatim                                                            |
+| `photon`     | Photon                                                               |
+| `geocoding`  | Nominatim + Photon                                                   |
+| `osrm`       | OSRM backends (driving/walking/cycling) + HAProxy + OSRM frontend    |
+| `postcodes`  | postcodes.io API + DB                                                |
+| `routing`    | OSRM + HAProxy + OSRM frontend + postcodes.io                       |
+| `api`        | FastAPI service                                                      |
+| `all`        | Everything                                                           |
+
+### Make targets
+
+```bash
+make up                  # start all services
+make down                # stop all services
+make ps                  # list running containers
+
+make nominatim-up        # start Nominatim only
+make geocoding-up        # start Nominatim + Photon
+make routing-up          # start OSRM + postcodes.io
+make api-up              # start the FastAPI service
+
+make nominatim-logs      # tail Nominatim logs
+make routing-down        # stop routing services
+```
+
+Any profile name works with `-up`, `-down`, and `-logs` suffixes.
+
+See [`docker/README.md`](docker/README.md) for full deployment, configuration, and air-gap transfer instructions.
 
 ______________________________________________________________________
 
@@ -67,10 +109,11 @@ Interactive docs are available at `http://localhost:5000/docs` (Swagger UI) and 
 
 ### Running via Docker Compose
 
-The `api` service is included in [`docker/docker-compose.yml`](docker/docker-compose.yml) and depends on all four backends:
+The `api` service is included in [`docker/docker-compose.yml`](docker/docker-compose.yml):
 
 ```bash
-docker compose --env-file .env up -d api
+make api-up              # just the API service
+make up                  # all services (API + all backends)
 ```
 
 ### Endpoints
@@ -87,13 +130,33 @@ docker compose --env-file .env up -d api
 
 ```json
 {
-  "origin":      { "lat": 51.5034, "lon": -0.1276 },
-  "destination": { "lat": 53.4808, "lon": -2.2426 },
-  "profile":     "driving"
+  "origin":           { "lat": 51.5034, "lon": -0.1276 },
+  "destination":      { "lat": 53.4808, "lon": -2.2426 },
+  "profile":          "driving",
+  "waypoints":        [{ "lat": 52.4862, "lon": -1.8904 }],
+  "steps":            false,
+  "alternatives":     false,
+  "annotations":      null,
+  "overview":         "full",
+  "geometries":       "polyline",
+  "continue_straight": null,
+  "exclude":          null
 }
 ```
 
-`profile` must be one of `"driving"`, `"walking"`, or `"cycling"`.
+All fields except `origin` and `destination` are optional.
+
+| Field               | Type                                                                  | Default      | Description                                             |
+| ------------------- | --------------------------------------------------------------------- | ------------ | ------------------------------------------------------- |
+| `profile`           | `"driving"` \| `"walking"` \| `"cycling"`                             | `"driving"`  | Routing profile                                         |
+| `waypoints`         | `[{lat, lon}, ...]`                                                   | `null`       | Ordered intermediate points                             |
+| `steps`             | `bool`                                                                | `false`      | Include turn-by-turn manoeuvre steps per leg            |
+| `alternatives`      | `bool \| int`                                                         | `false`      | Request alternative routes (`true` for any, or a count) |
+| `annotations`       | `["duration"\|"distance"\|"speed"\|"nodes"\|"weight"\|"datasources"]` | `null`       | Per-segment annotation keys                             |
+| `overview`          | `"full"` \| `"simplified"` \| `"false"`                               | `"full"`     | Route geometry detail level                             |
+| `geometries`        | `"polyline"` \| `"polyline6"` \| `"geojson"`                          | `"polyline"` | Route geometry encoding                                 |
+| `continue_straight` | `bool`                                                                | `null`       | Bias against U-turns at waypoints                       |
+| `exclude`           | `["motorway"\|"toll"\|"ferry", ...]`                                  | `null`       | Road classes to avoid                                   |
 
 ### Caching
 
@@ -144,15 +207,15 @@ All service URLs are read from environment variables (via `python-decouple`). Co
 cp .env.example .env
 ```
 
-| Variable            | Default                 | Description                                                                      |
-| ------------------- | ----------------------- | -------------------------------------------------------------------------------- |
-| `PHOTON_API`        | `http://localhost:2322` | Photon reverse geocoding service                                                 |
-| `NOMINATIM_URL`     | `http://localhost:8080` | Nominatim geocoding service                                                      |
-| `OSRM_API`          | `http://localhost:80`   | OSRM routing API (via HAProxy)                                                   |
-| `POSTCODES_URL`     | `http://localhost:8000` | postcodes.io API                                                                 |
-| `API_PORT`          | `5000`                  | Port the FastAPI service listens on                                              |
-| `CACHE_TTL_SECONDS` | `3600`                  | Cache entry TTL in seconds                                                       |
-| `CACHE_MAX_SIZE`    | `1024`                  | Max entries per cache domain                                                     |
+| Variable            | Default                 | Description                                                                     |
+| ------------------- | ----------------------- | ------------------------------------------------------------------------------- |
+| `PHOTON_API`        | `http://localhost:2322` | Photon reverse geocoding service                                                |
+| `NOMINATIM_URL`     | `http://localhost:8080` | Nominatim geocoding service                                                     |
+| `OSRM_API`          | `http://localhost:80`   | OSRM routing API (via HAProxy)                                                  |
+| `POSTCODES_URL`     | `http://localhost:8000` | postcodes.io API                                                                |
+| `API_PORT`          | `5000`                  | Port the FastAPI service listens on                                             |
+| `CACHE_TTL_SECONDS` | `3600`                  | Cache entry TTL in seconds                                                      |
+| `CACHE_MAX_SIZE`    | `1024`                  | Max entries per cache domain                                                    |
 | `PBF_URL`           | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de) |
 | `PBF_REGION`        | `great-britain`         | Region stem used in PBF/OSRM filenames (e.g. `germany`, `france`)               |
 
@@ -169,6 +232,8 @@ src/
     geocoding.py          # photon_reverse_geocode, nominatim_geocoder, geocoder
     routing.py            # route
     postcodes.py          # lookup_postcode, lookup_outcode
+    cli/
+      prepare_data.py     # `uv run prepare-data` — download and process geodata
   airgap_geo_api/
     app.py                # FastAPI app factory and /health endpoint
     cache.py              # In-process TTL cache

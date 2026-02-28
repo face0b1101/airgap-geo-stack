@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-02-28
+
+### Added
+
+- **Enhanced routing** — `route()` now accepts full OSRM parameter set:
+  - `waypoints`: intermediate stops between origin and destination
+  - `steps`: request per-leg turn-by-turn manoeuvre steps
+  - `alternatives`: request one or more alternative routes
+  - `annotations`: per-segment data keys (`duration`, `distance`, `speed`, `nodes`, `weight`, `datasources`)
+  - `overview`: geometry detail level (`full`, `simplified`, `false`)
+  - `geometries`: encoding format (`polyline`, `polyline6`, `geojson`)
+  - `continue_straight`: bias against U-turns at intermediate waypoints
+  - `exclude`: road-class avoidance list (e.g. `["motorway"]`, `["toll"]`)
+- **New Pydantic models**: `RouteManoeuvre`, `RouteTurnStep`, `RouteLeg` — structured turn-by-turn navigation data
+- **`RouteResult` enhancements**: `waypoints` (input intermediates) and `snapped_waypoints` (OSRM-snapped positions) fields; `RouteStep` gains a `legs` list
+- **`prepare-data` CLI** (`airgap_geo.cli.prepare_data`) — replaces the old `prepare-data.sh` Bash script with a Python CLI (Typer + Rich) registered as the `prepare-data` entry point
+- **Live integration test suite** (`tests/test_live/`) with a `live` pytest marker; skipped by default (`-m 'not live'`)
+- **`live` pytest marker** registered in `pyproject.toml`; `addopts` excludes live tests in standard `make test` runs
+- **Makefile targets**: `test-live`, `test-all`, `up`, `down`, `ps`, and pattern rules `<profile>-up`, `<profile>-down`, `<profile>-logs`
+- **Seven Jupyter notebooks** (`notebooks/01` – `07`) covering geocoding, routing, enhanced routing, postcodes, combined workflow, FastAPI usage, and performance benchmarking, plus a `notebooks/README.md`
+
+### Changed
+
+- **Docker Compose consolidated**: three separate per-service compose files (`nominatim/`, `osrm/`, `photon/`) merged into a single `docker/docker-compose.yml` with named profiles (`geocoding`, `nominatim`, `photon`, `routing`, `osrm`, `postcodes`, `api`, `all`)
+- `make prepare` now invokes `uv run prepare-data` instead of the removed `docker/prepare-data.sh`
+- `RouteRequest` in the API router now exposes all new routing parameters; cache key derived from a SHA-256 hash of the full request body
+- API `POST /route` description updated to reflect multi-waypoint and full-parameter support
+
+### Removed
+
+- `docker/nominatim/docker-compose.yml`, `docker/osrm/docker-compose.yml`, `docker/photon/docker-compose.yml` — superseded by the consolidated compose file
+- `docker/prepare-data.sh` — superseded by the `prepare-data` Python CLI
+- `notebooks/demo.ipynb` — superseded by the numbered notebook series
+
 ## [1.0.0] - 2026-02-28
 
 ### Added
@@ -44,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Air-gap deployment guide in `docker/README.md`
 - pytest test suite using `responses` to mock all HTTP calls
 
-[Unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/face0b1101/airgap-geo-stack/releases/tag/v0.1.0
+[1.0.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v0.1.0...v1.0.0
+[1.1.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.0.0...v1.1.0
+[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...HEAD
