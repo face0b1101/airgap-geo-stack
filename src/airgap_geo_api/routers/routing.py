@@ -10,7 +10,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from airgap_geo.models import GeoPoint, RouteResult
+from airgap_geo.geocoding import geocoder
+from airgap_geo.models import Address, GeocodeResult, GeoPoint, RouteResult
 from airgap_geo.routing import route
 from airgap_geo_api.cache import _route_cache, get_cached, set_cached
 
@@ -25,13 +26,34 @@ _GeometriesLiteral = Literal["polyline", "polyline6", "geojson"]
 
 
 class RouteRequest(BaseModel):
-    """Request body for the route endpoint."""
+    """Request body for the route endpoint.
 
-    origin: GeoPoint = Field(..., description="Start point as {lat, lon}")
-    destination: GeoPoint = Field(..., description="End point as {lat, lon}")
-    waypoints: list[GeoPoint] | None = Field(
+    ``origin``, ``destination``, and ``waypoints`` each accept either a
+    ``{lat, lon}`` object **or** a text string (place name, postcode, or
+    ``"lat,lon"``).  Text values are geocoded automatically via Nominatim
+    before routing.
+    """
+
+    origin: str | GeoPoint = Field(
+        ...,
+        description=(
+            "Start location — a {lat, lon} object, a place name, "
+            "a postcode, or a 'lat,lon' string"
+        ),
+    )
+    destination: str | GeoPoint = Field(
+        ...,
+        description=(
+            "End location — a {lat, lon} object, a place name, "
+            "a postcode, or a 'lat,lon' string"
+        ),
+    )
+    waypoints: list[str | GeoPoint] | None = Field(
         default=None,
-        description="Optional intermediate waypoints in travel order",
+        description=(
+            "Optional intermediate waypoints in travel order. "
+            "Each may be a {lat, lon} object or a text string."
+        ),
     )
     profile: _ProfileLiteral = Field(
         default="driving",
@@ -67,40 +89,99 @@ class RouteRequest(BaseModel):
     )
 
 
-def _cache_key(body: RouteRequest) -> str:
-    """Derive a stable cache key from the full request body."""
-    payload = body.model_dump(mode="json")
+async def _resolve_location(
+    location: str | GeoPoint, label: str, client: httpx.AsyncClient
+) -> tuple[GeoPoint, Address | None]:
+    """Resolve a location field to a GeoPoint and optional Address.
+
+    If *location* is already a :class:`GeoPoint`, return it directly with no
+    address.  If it is a string, geocode it via :func:`geocoder` and extract
+    both the coordinate and the address.
+
+    Raises:
+        ValueError: If geocoding fails for a text location.
+    """
+    if isinstance(location, GeoPoint):
+        return location, None
+
+    result: GeocodeResult | None = await geocoder(location, client)
+    if result is None:
+        raise ValueError(f"Could not geocode {label}: '{location}'")
+    return result.geo, result.address
+
+
+def _resolved_cache_key(
+    origin: GeoPoint,
+    destination: GeoPoint,
+    waypoints: list[GeoPoint],
+    body: RouteRequest,
+) -> str:
+    """Derive a stable cache key from resolved coordinates + routing options.
+
+    The key is computed from the *resolved* coordinates so that text and
+    coordinate inputs that resolve to the same point share a cache entry.
+    """
+    payload = {
+        "origin": {"lat": origin.lat, "lon": origin.lon},
+        "destination": {"lat": destination.lat, "lon": destination.lon},
+        "waypoints": [{"lat": wp.lat, "lon": wp.lon} for wp in waypoints],
+        "profile": body.profile,
+        "steps": body.steps,
+        "alternatives": body.alternatives,
+        "annotations": list(body.annotations) if body.annotations else None,
+        "overview": body.overview,
+        "geometries": body.geometries,
+        "continue_straight": body.continue_straight,
+        "exclude": list(body.exclude) if body.exclude else None,
+    }
     serialised = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(serialised.encode()).hexdigest()
 
 
 @router.post("", response_model=RouteResult, summary="Calculate a route")
 async def calculate_route(request: Request, body: RouteRequest) -> RouteResult:
-    """Calculate a route between two or more coordinate pairs.
+    """Calculate a route between two or more locations.
 
-    Returns a normalised :class:`RouteResult` including per-route distance,
-    duration, geometry, and optional per-leg steps and annotations.
+    Origin, destination, and waypoints can be supplied as ``{lat, lon}``
+    coordinate objects **or** as text strings (place names, postcodes, or
+    ``"lat,lon"`` strings).  Text values are geocoded automatically.
 
-    Intermediate **waypoints** can be provided to route through multiple points
-    in order. Optional parameters expose the full OSRM route feature set:
-    turn-by-turn steps, alternative routes, per-segment annotations, geometry
-    format, and road-class exclusions.
+    When geocoding is used, the response includes ``origin_address``,
+    ``destination_address``, and ``waypoint_addresses`` with the resolved
+    address metadata.
     """
-    cache_key = _cache_key(body)
+    client: httpx.AsyncClient = request.app.state.http_client
+
+    try:
+        origin_point, origin_addr = await _resolve_location(
+            body.origin, "origin", client
+        )
+        dest_point, dest_addr = await _resolve_location(
+            body.destination, "destination", client
+        )
+
+        wp_points: list[GeoPoint] = []
+        wp_addrs: list[Address] = []
+        for idx, wp in enumerate(body.waypoints or []):
+            pt, addr = await _resolve_location(wp, f"waypoint[{idx}]", client)
+            wp_points.append(pt)
+            if addr is not None:
+                wp_addrs.append(addr)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    cache_key = _resolved_cache_key(origin_point, dest_point, wp_points, body)
     cached = await get_cached(_route_cache, cache_key)
     if cached is not None:
         return cached
 
-    client: httpx.AsyncClient = request.app.state.http_client
     try:
         result = await route(
-            origin=(body.origin.lat, body.origin.lon),
-            destination=(body.destination.lat, body.destination.lon),
+            origin=(origin_point.lat, origin_point.lon),
+            destination=(dest_point.lat, dest_point.lon),
             client=client,
             profile=body.profile,
-            waypoints=[(wp.lat, wp.lon) for wp in body.waypoints]
-            if body.waypoints
-            else None,
+            waypoints=[(wp.lat, wp.lon) for wp in wp_points] if wp_points else None,
             steps=body.steps,
             alternatives=body.alternatives,
             annotations=list(body.annotations) if body.annotations else None,
@@ -117,6 +198,10 @@ async def calculate_route(request: Request, body: RouteRequest) -> RouteResult:
             status_code=502,
             detail="Routing service returned no result. Check OSRM is running.",
         )
+
+    result.origin_address = origin_addr
+    result.destination_address = dest_addr
+    result.waypoint_addresses = wp_addrs
 
     await set_cached(_route_cache, cache_key, result)
     return result

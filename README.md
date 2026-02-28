@@ -129,12 +129,17 @@ make up                  # all services (API + all backends)
 
 #### POST /route — request body
 
+`origin`, `destination`, and each item in `waypoints` accept **either** a
+`{lat, lon}` coordinate object **or** a text string (place name, postcode, or
+`"lat,lon"`). Text values are geocoded automatically via Nominatim before
+routing. All formats can be mixed freely within a single request.
+
 ```json
 {
-  "origin":           { "lat": 51.5034, "lon": -0.1276 },
-  "destination":      { "lat": 53.4808, "lon": -2.2426 },
+  "origin":           "Westminster",
+  "destination":      "Birmingham",
   "profile":          "driving",
-  "waypoints":        [{ "lat": 52.4862, "lon": -1.8904 }],
+  "waypoints":        ["Oxford"],
   "steps":            false,
   "alternatives":     false,
   "annotations":      null,
@@ -145,12 +150,32 @@ make up                  # all services (API + all backends)
 }
 ```
 
+Coordinate objects still work as before:
+
+```json
+{
+  "origin":      { "lat": 51.5034, "lon": -0.1276 },
+  "destination": { "lat": 53.4808, "lon": -2.2426 }
+}
+```
+
+Mixed input (coordinate origin, text destination) is also supported:
+
+```json
+{
+  "origin":      { "lat": 51.5034, "lon": -0.1276 },
+  "destination": "Birmingham"
+}
+```
+
 All fields except `origin` and `destination` are optional.
 
 | Field               | Type                                                                  | Default      | Description                                             |
 | ------------------- | --------------------------------------------------------------------- | ------------ | ------------------------------------------------------- |
+| `origin`            | `{lat, lon}` \| `string`                                             | *(required)* | Start location — coordinates or text                    |
+| `destination`       | `{lat, lon}` \| `string`                                             | *(required)* | End location — coordinates or text                      |
 | `profile`           | `"driving"` \| `"walking"` \| `"cycling"`                             | `"driving"`  | Routing profile                                         |
-| `waypoints`         | `[{lat, lon}, ...]`                                                   | `null`       | Ordered intermediate points                             |
+| `waypoints`         | `[{lat, lon} \| string, ...]`                                         | `null`       | Ordered intermediate points (coordinates or text)       |
 | `steps`             | `bool`                                                                | `false`      | Include turn-by-turn manoeuvre steps per leg            |
 | `alternatives`      | `bool \| int`                                                         | `false`      | Request alternative routes (`true` for any, or a count) |
 | `annotations`       | `["duration"\|"distance"\|"speed"\|"nodes"\|"weight"\|"datasources"]` | `null`       | Per-segment annotation keys                             |
@@ -158,6 +183,15 @@ All fields except `origin` and `destination` are optional.
 | `geometries`        | `"polyline"` \| `"polyline6"` \| `"geojson"`                          | `"polyline"` | Route geometry encoding                                 |
 | `continue_straight` | `bool`                                                                | `null`       | Bias against U-turns at waypoints                       |
 | `exclude`           | `["motorway"\|"toll"\|"ferry", ...]`                                  | `null`       | Road classes to avoid                                   |
+
+When text locations are geocoded, the response includes additional address
+metadata:
+
+| Response field          | Type             | Description                                      |
+| ----------------------- | ---------------- | ------------------------------------------------ |
+| `origin_address`        | `Address \| null` | Resolved address for origin (null if coordinates) |
+| `destination_address`   | `Address \| null` | Resolved address for destination                  |
+| `waypoint_addresses`    | `[Address, ...]` | Resolved addresses for geocoded waypoints         |
 
 ### Caching
 
@@ -187,7 +221,7 @@ All public functions are `async` and require an `httpx.AsyncClient`:
 ```python
 import asyncio
 import httpx
-from airgap_geo import geocoder, route, lookup_postcode, lookup_outcode
+from airgap_geo import geocoder, route, route_by_name, lookup_postcode, lookup_outcode
 
 async def main():
     async with httpx.AsyncClient() as client:
@@ -197,7 +231,16 @@ async def main():
         # Reverse geocode / enrich a coordinate string
         result = await geocoder("51.5034,-0.1276", client)
 
-        # Driving route between two points (with optional intermediate waypoints)
+        # Route by place name (geocodes automatically, includes address metadata)
+        r = await route_by_name(
+            "Westminster",
+            "Birmingham",
+            client,
+            profile="driving",
+            waypoints=["Oxford"],
+        )
+
+        # Route between explicit coordinates
         r = await route(
             (51.5034, -0.1276),
             (53.4808, -2.2426),

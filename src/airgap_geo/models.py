@@ -89,7 +89,10 @@ class RouteResult(BaseModel):
     profile: str
     origin: GeoPoint
     destination: GeoPoint
+    origin_address: Address | None = None
+    destination_address: Address | None = None
     waypoints: list[GeoPoint] = []
+    waypoint_addresses: list[Address] = []
     snapped_waypoints: list[GeoPoint] = []
     routes: list[RouteStep] = []
     raw: dict[str, Any] = {}

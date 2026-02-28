@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-28
+
+### Added
+
+- **`route_by_name()` convenience function** — geocodes text locations (place names, postcodes, or `"lat,lon"` strings) and routes between them in a single call; returns a `RouteResult` with resolved address metadata
+- **`RouteResult` address metadata**: `origin_address`, `destination_address`, and `waypoint_addresses` fields populated when locations are geocoded from text (default to `null`/`[]` for coordinate-only usage)
+
+### Changed
+
+- **Smart `POST /route` endpoint** — `origin`, `destination`, and `waypoints` now accept text strings alongside `{lat, lon}` coordinate objects; all formats can be mixed freely within a single request
+- Route cache key computed from **resolved** coordinates so that text and coordinate inputs resolving to the same point share a cache entry
+
 ## [1.1.0] - 2026-02-28
 
 ### Added
@@ -81,4 +93,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/face0b1101/airgap-geo-stack/releases/tag/v0.1.0
 [1.0.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v0.1.0...v1.0.0
 [1.1.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.0.0...v1.1.0
-[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...HEAD
+[1.2.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...v1.2.0
+[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.2.0...HEAD

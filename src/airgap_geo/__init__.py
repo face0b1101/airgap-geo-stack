@@ -14,7 +14,7 @@ from airgap_geo.models import (
     RouteTurnStep,
 )
 from airgap_geo.postcodes import lookup_outcode, lookup_postcode
-from airgap_geo.routing import route
+from airgap_geo.routing import route, route_by_name
 
 __all__ = [
     "Address",
@@ -31,4 +31,5 @@ __all__ = [
     "lookup_outcode",
     "lookup_postcode",
     "route",
+    "route_by_name",
 ]

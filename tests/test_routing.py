@@ -7,8 +7,8 @@ import re
 import httpx
 import pytest
 
-from airgap_geo.routing import route
-from airgap_geo.settings import OSRM_API
+from airgap_geo.routing import route, route_by_name
+from airgap_geo.settings import NOMINATIM_URL, OSRM_API, PHOTON_API
 
 # httpx normalises default ports (e.g. http://host:80 → http://host), so we
 # must match against the normalised form when building URL patterns.
@@ -471,3 +471,219 @@ class TestRoute:
             result = await route((51.5034, -0.1276), (53.4808, -2.2426), client)
         assert result is not None
         assert result.waypoints == []
+
+    async def test_address_fields_default_to_none(self, httpx_mock):
+        """Address fields on RouteResult default to None when using route()."""
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+        async with httpx.AsyncClient() as client:
+            result = await route((51.5034, -0.1276), (53.4808, -2.2426), client)
+        assert result is not None
+        assert result.origin_address is None
+        assert result.destination_address is None
+        assert result.waypoint_addresses == []
+
+
+# ---------------------------------------------------------------------------
+# Geocoding mock data (shared across route_by_name tests)
+# ---------------------------------------------------------------------------
+
+_NOMINATIM_SEARCH_URL = re.compile(rf"{re.escape(NOMINATIM_URL)}/search.*")
+_PHOTON_REVERSE_URL = re.compile(rf"{re.escape(PHOTON_API)}/reverse.*")
+
+_NOMINATIM_WESTMINSTER = [
+    {"place_id": 10, "lat": "51.4975", "lon": "-0.1357", "display_name": "Westminster"}
+]
+_NOMINATIM_BIRMINGHAM = [
+    {"place_id": 20, "lat": "52.4862", "lon": "-1.8904", "display_name": "Birmingham"}
+]
+_NOMINATIM_OXFORD = [
+    {"place_id": 30, "lat": "51.7520", "lon": "-1.2577", "display_name": "Oxford"}
+]
+
+_PHOTON_FEATURE_WESTMINSTER = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-0.1357, 51.4975]},
+    "properties": {
+        "name": "Westminster",
+        "city": "London",
+        "country": "United Kingdom",
+        "countrycode": "GB",
+    },
+}
+_PHOTON_FEATURE_BIRMINGHAM = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-1.8904, 52.4862]},
+    "properties": {
+        "name": "Birmingham",
+        "city": "Birmingham",
+        "country": "United Kingdom",
+        "countrycode": "GB",
+    },
+}
+_PHOTON_FEATURE_OXFORD = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-1.2577, 51.7520]},
+    "properties": {
+        "name": "Oxford",
+        "city": "Oxford",
+        "country": "United Kingdom",
+        "countrycode": "GB",
+    },
+}
+
+
+def _photon_response(feature: dict) -> dict:
+    return {"type": "FeatureCollection", "features": [feature]}
+
+
+class TestRouteByName:
+    """Tests for the route_by_name convenience function."""
+
+    async def test_happy_path_with_addresses(self, httpx_mock):
+        """Geocodes text locations and returns a RouteResult with address metadata."""
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_WESTMINSTER),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_BIRMINGHAM, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_BIRMINGHAM),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        async with httpx.AsyncClient() as client:
+            result = await route_by_name("Westminster", "Birmingham", client)
+
+        assert result.profile == "driving"
+        assert result.origin.lat == pytest.approx(51.4975)
+        assert result.destination.lat == pytest.approx(52.4862)
+        assert result.origin_address is not None
+        assert result.origin_address.city == "London"
+        assert result.destination_address is not None
+        assert result.destination_address.city == "Birmingham"
+        assert len(result.routes) == 1
+
+    async def test_geocode_failure_origin_raises_value_error(self, httpx_mock):
+        """Raises ValueError when the origin cannot be geocoded."""
+        httpx_mock.add_response(url=_NOMINATIM_SEARCH_URL, json=[], status_code=200)
+
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ValueError, match="Could not geocode origin"):
+                await route_by_name("Atlantis", "Birmingham", client)
+
+    async def test_geocode_failure_destination_raises_value_error(self, httpx_mock):
+        """Raises ValueError when the destination cannot be geocoded."""
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_WESTMINSTER),
+            status_code=200,
+        )
+        httpx_mock.add_response(url=_NOMINATIM_SEARCH_URL, json=[], status_code=200)
+
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ValueError, match="Could not geocode destination"):
+                await route_by_name("Westminster", "Atlantis", client)
+
+    async def test_waypoints_geocoded_and_passed_through(self, httpx_mock):
+        """Text waypoints are geocoded and coordinates passed to OSRM."""
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_WESTMINSTER),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_BIRMINGHAM, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_BIRMINGHAM),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_OXFORD, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_OXFORD),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE_WITH_WAYPOINTS, status_code=200
+        )
+
+        async with httpx.AsyncClient() as client:
+            result = await route_by_name(
+                "Westminster", "Birmingham", client, waypoints=["Oxford"]
+            )
+
+        assert len(result.waypoints) == 1
+        assert result.waypoints[0].lat == pytest.approx(51.7520)
+        assert len(result.waypoint_addresses) == 1
+        assert result.waypoint_addresses[0].city == "Oxford"
+
+    async def test_coordinate_string_input_works(self, httpx_mock):
+        """Passing a 'lat,lon' string exercises geocoder's coordinate detection."""
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_WESTMINSTER),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_BIRMINGHAM),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        async with httpx.AsyncClient() as client:
+            result = await route_by_name("51.4975,-0.1357", "52.4862,-1.8904", client)
+
+        assert result.origin.lat == pytest.approx(51.4975)
+        assert result.destination.lat == pytest.approx(52.4862)
+        assert result.origin_address is not None
+
+    async def test_osrm_failure_raises_value_error(self, httpx_mock):
+        """Raises ValueError when OSRM fails after successful geocoding."""
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_WESTMINSTER),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_BIRMINGHAM, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
+            json=_photon_response(_PHOTON_FEATURE_BIRMINGHAM),
+            status_code=200,
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json={"code": "NoRoute"}, status_code=400
+        )
+
+        async with httpx.AsyncClient() as client:
+            with pytest.raises(ValueError, match="Routing service returned no result"):
+                await route_by_name("Westminster", "Birmingham", client)

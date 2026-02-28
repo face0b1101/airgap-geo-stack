@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import httpx
 
+from airgap_geo.geocoding import geocoder
 from airgap_geo.models import (
+    Address,
     GeoPoint,
     RouteLeg,
     RouteManoeuvre,
@@ -207,3 +209,96 @@ async def route(
         routes=route_steps,
         raw=data,
     )
+
+
+async def route_by_name(
+    origin: str,
+    destination: str,
+    client: httpx.AsyncClient,
+    profile: str = "driving",
+    *,
+    waypoints: list[str] | None = None,
+    steps: bool = False,
+    alternatives: bool | int = False,
+    annotations: list[str] | None = None,
+    overview: str = "full",
+    geometries: str = "polyline",
+    continue_straight: bool | None = None,
+    exclude: list[str] | None = None,
+) -> RouteResult:
+    """Geocode text locations and calculate a route between them.
+
+    Convenience wrapper around :func:`geocoder` and :func:`route`.  Each
+    location string can be a free-text place name, postcode, or a
+    ``"lat,lon"`` coordinate string — ``geocoder()`` handles detection
+    automatically.
+
+    Args:
+        origin: Start location as free text or ``"lat,lon"``.
+        destination: End location as free text or ``"lat,lon"``.
+        client: Shared async HTTP client.
+        profile: One of ``"driving"``, ``"walking"``, or ``"cycling"``.
+        waypoints: Optional intermediate locations as text strings.
+        steps: If ``True``, include turn-by-turn manoeuvre steps per leg.
+        alternatives: Request alternative routes.
+        annotations: Per-segment annotation keys to include.
+        overview: Geometry detail level.
+        geometries: Route geometry encoding.
+        continue_straight: Bias against U-turns at waypoints.
+        exclude: Road classes to avoid.
+
+    Returns:
+        A :class:`RouteResult` with ``origin_address``,
+        ``destination_address``, and ``waypoint_addresses`` populated from
+        the geocoding results.
+
+    Raises:
+        ValueError: If geocoding fails for any location, or if routing
+            parameters are invalid.
+    """
+    origin_result = await geocoder(origin, client)
+    if origin_result is None:
+        raise ValueError(f"Could not geocode origin: '{origin}'")
+
+    dest_result = await geocoder(destination, client)
+    if dest_result is None:
+        raise ValueError(f"Could not geocode destination: '{destination}'")
+
+    origin_coords = (origin_result.geo.lat, origin_result.geo.lon)
+    dest_coords = (dest_result.geo.lat, dest_result.geo.lon)
+
+    wp_coords: list[tuple[float, float]] = []
+    wp_addresses: list[Address] = []
+    for wp_text in waypoints or []:
+        wp_result = await geocoder(wp_text, client)
+        if wp_result is None:
+            raise ValueError(f"Could not geocode waypoint: '{wp_text}'")
+        wp_coords.append((wp_result.geo.lat, wp_result.geo.lon))
+        wp_addresses.append(wp_result.address or Address())
+
+    result = await route(
+        origin_coords,
+        dest_coords,
+        client,
+        profile=profile,
+        waypoints=wp_coords or None,
+        steps=steps,
+        alternatives=alternatives,
+        annotations=annotations,
+        overview=overview,
+        geometries=geometries,
+        continue_straight=continue_straight,
+        exclude=exclude,
+    )
+
+    if result is None:
+        raise ValueError(
+            "Routing service returned no result after successful geocoding. "
+            "Check OSRM is running."
+        )
+
+    result.origin_address = origin_result.address
+    result.destination_address = dest_result.address
+    result.waypoint_addresses = wp_addresses
+
+    return result

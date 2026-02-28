@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
-from airgap_geo.settings import OSRM_API
+from airgap_geo.settings import NOMINATIM_URL, OSRM_API, PHOTON_API
 
 _OSRM_BASE = str(httpx.URL(OSRM_API))
 
@@ -321,3 +322,178 @@ class TestRouteEndpoint:
         assert response.status_code == 200
         req_url = str(httpx_mock.get_requests()[0].url)
         assert "geometries=geojson" in req_url
+
+
+# ---------------------------------------------------------------------------
+# Smart endpoint tests — text / mixed input
+# ---------------------------------------------------------------------------
+
+_NOMINATIM_SEARCH_URL = re.compile(rf"{re.escape(NOMINATIM_URL)}/search.*")
+_PHOTON_REVERSE_URL = re.compile(rf"{re.escape(PHOTON_API)}/reverse.*")
+
+_NOMINATIM_WESTMINSTER = [
+    {"place_id": 10, "lat": "51.4975", "lon": "-0.1357", "display_name": "Westminster"}
+]
+_NOMINATIM_BIRMINGHAM = [
+    {"place_id": 20, "lat": "52.4862", "lon": "-1.8904", "display_name": "Birmingham"}
+]
+
+_PHOTON_WESTMINSTER = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-0.1357, 51.4975]},
+            "properties": {
+                "name": "Westminster",
+                "city": "London",
+                "country": "United Kingdom",
+                "countrycode": "GB",
+            },
+        }
+    ],
+}
+_PHOTON_BIRMINGHAM = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-1.8904, 52.4862]},
+            "properties": {
+                "name": "Birmingham",
+                "city": "Birmingham",
+                "country": "United Kingdom",
+                "countrycode": "GB",
+            },
+        }
+    ],
+}
+
+
+def _mock_geocode_westminster(httpx_mock) -> None:
+    """Register Nominatim + Photon mocks for 'Westminster'."""
+    httpx_mock.add_response(
+        url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_WESTMINSTER, status_code=200
+    )
+    httpx_mock.add_response(
+        url=_PHOTON_REVERSE_URL, json=_PHOTON_WESTMINSTER, status_code=200
+    )
+
+
+def _mock_geocode_birmingham(httpx_mock) -> None:
+    """Register Nominatim + Photon mocks for 'Birmingham'."""
+    httpx_mock.add_response(
+        url=_NOMINATIM_SEARCH_URL, json=_NOMINATIM_BIRMINGHAM, status_code=200
+    )
+    httpx_mock.add_response(
+        url=_PHOTON_REVERSE_URL, json=_PHOTON_BIRMINGHAM, status_code=200
+    )
+
+
+class TestSmartRouteEndpoint:
+    """Tests for POST /route with text-based origin/destination."""
+
+    def test_text_origin_and_destination(self, client: TestClient, httpx_mock):
+        """Text inputs are geocoded and a route is returned with address metadata."""
+        _mock_geocode_westminster(httpx_mock)
+        _mock_geocode_birmingham(httpx_mock)
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={"origin": "Westminster", "destination": "Birmingham"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["origin"]["lat"] == pytest.approx(51.4975, abs=1e-3)
+        assert data["destination"]["lat"] == pytest.approx(52.4862, abs=1e-3)
+        assert data["origin_address"]["city"] == "London"
+        assert data["destination_address"]["city"] == "Birmingham"
+        assert len(data["routes"]) == 1
+
+    def test_mixed_geopoint_origin_text_destination(
+        self, client: TestClient, httpx_mock
+    ):
+        """GeoPoint origin + text destination works in a single request."""
+        _mock_geocode_birmingham(httpx_mock)
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={"origin": _ORIGIN, "destination": "Birmingham"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["origin"]["lat"] == _ORIGIN["lat"]
+        assert data["origin_address"] is None
+        assert data["destination_address"]["city"] == "Birmingham"
+
+    def test_mixed_text_origin_geopoint_destination(
+        self, client: TestClient, httpx_mock
+    ):
+        """Text origin + GeoPoint destination works in a single request."""
+        _mock_geocode_westminster(httpx_mock)
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={"origin": "Westminster", "destination": _DEST},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["origin_address"]["city"] == "London"
+        assert data["destination_address"] is None
+        assert data["destination"]["lat"] == _DEST["lat"]
+
+    def test_geocode_failure_returns_422(self, client: TestClient, httpx_mock):
+        """Returns 422 when a text location cannot be geocoded."""
+        httpx_mock.add_response(url=_NOMINATIM_SEARCH_URL, json=[], status_code=200)
+
+        response = client.post(
+            "/route",
+            json={"origin": "Atlantis", "destination": _DEST},
+        )
+        assert response.status_code == 422
+        assert "Could not geocode origin" in response.json()["detail"]
+
+    def test_text_route_cached_on_resolved_coords(self, client: TestClient, httpx_mock):
+        """Repeated text requests hit the cache after the first geocode + route."""
+        _mock_geocode_westminster(httpx_mock)
+        _mock_geocode_birmingham(httpx_mock)
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+        _mock_geocode_westminster(httpx_mock)
+        _mock_geocode_birmingham(httpx_mock)
+
+        body = {"origin": "Westminster", "destination": "Birmingham"}
+        client.post("/route", json=body)
+        client.post("/route", json=body)
+
+        osrm_requests = [
+            r for r in httpx_mock.get_requests() if "/route/v1/" in str(r.url)
+        ]
+        assert len(osrm_requests) == 1
+
+    def test_coordinate_only_requests_still_work(self, client: TestClient, httpx_mock):
+        """Existing coordinate-only requests remain fully backwards compatible."""
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={"origin": _ORIGIN, "destination": _DEST, "profile": "driving"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile"] == "driving"
+        assert data["origin_address"] is None
+        assert data["destination_address"] is None
+        assert data["waypoint_addresses"] == []
