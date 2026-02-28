@@ -130,3 +130,11 @@ dmypy.json
 
 # VSCode settings
 .vscode/
+
+# Docker data / air-gap assets
+docker/nominatim/data/*.osm.pbf
+docker/nominatim/data/*.pbf
+docker/osrm/data/
+*.tar
+photon-data/
+Dockerfile.airgap

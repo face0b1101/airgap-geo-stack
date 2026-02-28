@@ -83,7 +83,7 @@ ______________________________________________________________________
 ## Tech Stack & Commands
 
 - **Language**: Python 3.13+
-- **Package manager**: [uv](https://docs.astral.sh/uv/) — do NOT use pip or manually edit `uv.lock`
+- **Package manager**: [uv](https://docs.astral.sh/uv/) - do NOT use pip or manually edit `uv.lock`
 - **Linter/formatter**: Ruff (configured in `pyproject.toml`)
 - **Tests**: pytest
 
@@ -96,6 +96,7 @@ ______________________________________________________________________
 | `make precommit` | Run all pre-commit hooks                 |
 | `make run`       | Run the sample `hello` entry point       |
 | `make check`     | Lint + test combined                     |
+| `make prepare`   | Download and process data for all Docker services (`ARGS` forwarded to `docker/prepare-data.sh`) |
 
 **Key conventions**:
 
@@ -124,7 +125,7 @@ Concise policy reference for all coding agents touching this repository. Keep re
 
 ### 3. Collaboration Etiquette
 
-- If another agent has edited a file, read their changes and build on them—do not revert or overwrite.
+- If another agent has edited a file, read their changes and build on them-do not revert or overwrite.
 - Coordinate before touching large refactors that might conflict with ongoing work.
 - Keep diffs minimal and reviewable; use targeted edits rather than rewriting whole files.
 

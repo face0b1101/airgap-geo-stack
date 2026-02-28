@@ -1,6 +1,0 @@
-.env
-notebooks/*
-.venv
-.pre-commit-config.yaml
-.ipynb_checkpoints
-.ruff*

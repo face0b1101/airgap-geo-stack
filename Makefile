@@ -1,4 +1,4 @@
-.PHONY: install lint format test precommit run check
+.PHONY: install lint format test precommit run check prepare
 
 install:
 	uv sync
@@ -20,3 +20,5 @@ run:
 
 check: lint test
 
+prepare:
+	cd docker && bash prepare-data.sh $(ARGS)

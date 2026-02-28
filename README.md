@@ -1,246 +1,163 @@
-# Python `uv` Boilerplate
+# `airgap-geocoding-stack`
 
-Template for creating basic python projects using [uv](https://github.com/astral-sh/uv)
+A self-contained Python library and Docker Compose stack for fully air-gapped geocoding,
+reverse geocoding, routing, and UK postcode lookup - with zero runtime dependency on
+external APIs or the internet.
 
-## Folder Structure
+All services are OSM-derived and run entirely within your own infrastructure.
 
-```sh
-python-uv-boilerplate
-├── .github/
-│   └── workflows/
-│       └── ci.yaml           # GitHub Actions pipeline (lint + test)
-├── docs/
-│   └── ONBOARDING.md         # Setup guide for AI agents and human users
-├── notebooks/
-│   └── test.ipynb            # Example notebook (imports renamed by script)
-├── src/
-│   └── python_uv_boilerplate # Main package (rename via rename_project.py)
-│       ├── config/
-│       │   └── env.py        # Environment variable helpers
-│       ├── libs/
-│       │   └── my_lib.py     # Sample reusable module
-│       ├── __init__.py       # Exposes package metadata
-│       └── main.py           # Entry point with logging demo
-├── tests/
-│   ├── conftest.py           # Pytest fixtures
-│   └── test_my_app.py        # Sample coverage (hello + rename helper)
-├── .env.example              # Copy to .env and customise
-├── AGENTS.md                 # Quick rules for coding agents
-├── CHANGELOG.md              # Release notes
-├── dockerfile                # Multi-stage build image definition
-├── docker-build.sh           # Helper for manual Docker builds
-├── docker-compose.yml        # Compose service definition
-├── Makefile                  # Standardised automation targets
-├── pyproject.toml            # Project + tooling configuration
-├── README.md                 # You are here
-├── rename_project.py         # Automated rename/housekeeping script
-├── uv.lock                   # Locked dependency graph
-└── version_bump.sh           # Simple release helper script
+______________________________________________________________________
+
+## Services
+
+| Service              | Image                                   | Port     | Role                                                      |
+| -------------------- | --------------------------------------- | -------- | --------------------------------------------------------- |
+| **Nominatim**        | `mediagis/nominatim:5.2`                | `8080`   | Forward geocoding - place name / postcode → lat/lon       |
+| **Photon**           | `rtuszik/photon-docker:latest`          | `2322`   | Reverse geocoding - lat/lon → rich OSM address properties |
+| **OSRM** (driving)   | `osrm/osrm-backend`                     | internal | Road routing, car profile                                 |
+| **OSRM** (walking)   | `osrm/osrm-backend`                     | internal | Road routing, foot profile                                |
+| **OSRM** (cycling)   | `osrm/osrm-backend`                     | internal | Road routing, bike profile                                |
+| **OSRM frontend**    | `osrm/osrm-frontend:latest`             | `9966`   | Visual route planner UI                                   |
+| **HAProxy**          | `haproxy`                               | `80`     | Reverse proxy for OSRM profiles and postcodes.io          |
+| **postcodes.io API** | `idealpostcodes/postcodes.io:latest`    | `8000`   | UK postcode lookup                                        |
+| **postcodes.io DB**  | `idealpostcodes/postcodes.io.db:latest` | internal | PostgreSQL backing store                                  |
+
+See [`docker/README.md`](docker/README.md) for full deployment and air-gap transfer instructions.
+
+______________________________________________________________________
+
+## Data Preparation (required before first run)
+
+All services except postcodes.io require data to be downloaded and/or processed
+before the Docker stack will start. A unified preparation script handles everything:
+
+```bash
+make prepare                             # download and process all services
+make prepare ARGS="--cleanup"            # same, but remove PBF copies from OSRM dirs afterwards
+make prepare ARGS="--skip-photon"        # skip the ~60 GB Photon download
 ```
 
-## How to Create a new Project
+Individual services can be skipped with `--skip-nominatim`, `--skip-osrm`, or `--skip-photon`.
 
-There are two ways to create a new Project.
+| Service          | What it needs                                                   | Approx. size               | Time                              |
+| ---------------- | --------------------------------------------------------------- | -------------------------- | --------------------------------- |
+| **Nominatim**    | Great Britain PBF download; import on first `docker compose up` | ~1.2 GB download           | minutes (download), 2–6 hr import |
+| **OSRM**         | PBF download + extract/partition/customise per profile          | ~1.2 GB + ~10 GB processed | 1–3 hours                         |
+| **Photon**       | European dataset download                                       | ~60 GB                     | hours (network-dependent)         |
+| **postcodes.io** | None — data is pre-loaded in the DB image                       | —                          | —                                 |
 
-### 1. Create a new Project from the repo as a template
+See individual service READMEs for details:
+[`docker/nominatim/README.md`](docker/nominatim/README.md),
+[`docker/osrm/README.md`](docker/osrm/README.md),
+[`docker/photon/README.md`](docker/photon/README.md).
 
-Pretty straightforward. Go to the [repository](https://github.com/face0b1101/python-uv-boilerplate) and click the green `Use this template` button.
+______________________________________________________________________
 
-See [here](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template) for more details.
+## Python Library
 
-### 2. Create a Fork
+### Installation
 
-Alternatively, create a fork the _old-fashioned_ way:
+```bash
+git clone https://github.com/face0b1101/airgap-geocoding-stack
+cd airgap-geocoding-stack
+make install   # runs uv sync - installs all dependencies
+```
 
-- Create new repository on GitHub (`new-repository-name`)
-- Create another folder on local machine
-- Bare clone this repository
+### Quick start
 
-    ```bash
-    git clone --bare https://github.com/face0b1101/python-uv-boilerplate
-    ```
+```python
+from airgap_geocoding import geocoder, route, lookup_postcode, lookup_outcode
 
-- CD to this folder (with .git suffix) and push mirror to GitHub
+# Forward geocode a place name or postcode
+result = geocoder("10 Downing Street, London")
 
-    ```bash
-    cd python-uv-boilerplate.git
-    git push --mirror https://github.com/face0b1101/new-repository-name.git
-    ```
+# Reverse geocode / enrich a coordinate string
+result = geocoder("51.5034,-0.1276")
 
-- Remove `python-uv-boilerplate.git` folder from local folder
-- Clone `new-repository-name` to local folder
+# Driving route between two points
+r = route((51.5034, -0.1276), (53.4808, -2.2426), profile="driving")
 
-### Housekeeping
+# UK postcode lookup
+info = lookup_postcode("SW1A 2AA")
+outcode = lookup_outcode("SW1A")
+```
 
-When you have your new project set up, a bit of housekeeping is required:
+### Configuration
 
-1. Make sure you have [uv installed](https://docs.astral.sh/uv/getting-started/installation/)
+All service URLs are read from environment variables (via `python-decouple`). Copy
+`.env.example` to `.env` and adjust values to match your deployment:
 
-2. Ensure python version is set
+```bash
+cp .env.example .env
+```
 
-    ```bash
-    uv python pin 3.12
-    ```
+| Variable        | Default                 | Description                      |
+| --------------- | ----------------------- | -------------------------------- |
+| `PHOTON_API`    | `http://localhost:2322` | Photon reverse geocoding service |
+| `NOMINATIM_URL` | `http://localhost:8080` | Nominatim geocoding service      |
+| `OSRM_API`      | `http://localhost:80`   | OSRM routing API (via HAProxy)   |
+| `POSTCODES_URL` | `http://localhost:8000` | postcodes.io API                 |
 
-3. Create a Python Virtual Environment for the project
+______________________________________________________________________
 
-    ```bash
-    uv venv
-    uv sync
-    ```
+## Project Structure
 
-4. Configure environment variables
+```sh
+src/
+  airgap_geocoding/
+    __init__.py       # Public API: geocoder, route, lookup_postcode, lookup_outcode
+    settings.py       # Environment-variable configuration
+    geocoding.py      # photon_reverse_geocode, nominatim_geocoder, geocoder
+    routing.py        # route
+    postcodes.py      # lookup_postcode, lookup_outcode
+docker/
+  README.md           # Air-gap deployment guide
+  nominatim/
+  photon/
+  osrm/
+tests/
+  test_geocoding.py
+  test_routing.py
+  test_postcodes.py
+```
 
-    ```bash
-    cp .env.example .env
-    ```
+______________________________________________________________________
 
-    Update `LOG_LEVEL` and `TZ` (defaults: `INFO` / `UTC`) to match your deployment environment. The rename script in the next step also performs this copy automatically.
+## Development
 
-5. Rename the project - there is a convenience script, `rename_project.py`
+### Prerequisites
 
-    ```bash
-    uv run rename_project.py
-    ```
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
 
-    The script performs the following actions:
+### Setup
 
-    - Rename `src/python_uv_boilerplate` directory to `src/new_project_name`
-    - Rename `.env.example` to `.env`
-    - Rename `tests/test_my_app.py` to `tests/test_new_project_name.py`
-    - Update project name references across all relevant files:
-      - `src/new_project_name/__init__.py`, `main.py`, `config/__init__.py`, `libs/__init__.py`
-      - `tests/__init__.py`, `tests/test_new_project_name.py`
-      - `pyproject.toml`, `README.md`, `CHANGELOG.md`, `version_bump.sh`
-      - `docker-build.sh`, `docker-compose.yml`
-    - Update imports in `notebooks/test.ipynb`
-    - Deletes itself on successful completion
+```bash
+make install    # uv sync - install all dependencies
+make test       # run the pytest suite
+make lint       # ruff check
+make format     # ruff format
+make check      # lint + test combined
+```
 
-6. Reset the changelog
+### Pre-commit hooks (optional)
 
-   Replace `CHANGELOG.md` with a clean slate for your project. Remove the boilerplate
-   history entries and add an initial entry:
+```bash
+uv run pre-commit install
+```
 
-   ```markdown
-   ## [Unreleased]
-
-   ## [0.1.0] - YYYY-MM-DD
-
-   ### Added
-   - Initial project created from python-uv-boilerplate template
-   ```
-
-   Update the comparison links at the bottom of the file to point to your repository URL.
-
-7. Update the venv
-
-    ```bash
-    uv sync
-    ```
-
-8. Run pytest to ensure that renames have been successful
-
-    ```bash
-    uv run pytest
-    ```
-
-    If the tests run without error then you have configured your project and you're ready to get coding.
-
-9. Enable git pre-commit hooks - _optional_
-
-   Some example pre-commit hooks are configured in `.pre-commit-config.yaml`. These can be enabled by running:
-
-   ```bash
-   uv run pre-commit install
-   ```
-
-   might be worth updating hooks, too:
-
-   ```bash
-   uv run pre-commit autoupdate --repo https://github.com/pre-commit/pre-commit-hooks
-   ```
+______________________________________________________________________
 
 ## How to Code
 
-1. Create a new branch
+Use conventional commit prefixes:
 
-   ```bash
-   git branch <new-branch>
-   ```
-
-2. Do some coding and stuff...
-
-3. Push the new branch and changes
-
-   ```bash
-   git push -u origin <new-branch>
-   ```
-
-## How to Commit
-
-- Commit on the branch
-- PR if it should be merged
-- Specify the type of commit:
-  - feat: The new feature you're adding to a particular application
-  - fix: A bug fix
-  - style: Feature and updates related to styling
-  - refactor: Refactoring a specific section of the codebase
-  - test: Everything related to testing
-  - docs: Everything related to documentation
-  - chore: Regular code maintenance.[ You can also use emojis to represent commit types]
-
-## Automation
-
-Common tasks are wrapped in the project `Makefile`:
-
-- `make install` – install/refresh dependencies with uv
-- `make lint` / `make format` – run Ruff in check or format mode
-- `make test` – execute the pytest suite
-- `make precommit` – run all configured pre-commit hooks
-- `make run` – invoke the sample `hello` entry point
-
-GitHub Actions executes `make install`, `make lint`, and `make test` on every push/PR via [`.github/workflows/ci.yaml`](.github/workflows/ci.yaml).
-
-## Working with AI Coding Assistants
-
-- Follow the plan/approval workflow: request approval before editing and summarise changes plus tests before handing back.
-- Use the Makefile targets above for deterministic commands (`make lint`, `make test`, etc.) so local runs match CI.
-- Keep replies factual, stick to UK-English spelling, and capture assumptions up front.
-- When a new project is created from this template, follow [`docs/ONBOARDING.md`](docs/ONBOARDING.md) to rename the project, update metadata, and verify the setup. AI agents should follow that guide directly; human users can follow the [Housekeeping](#housekeeping) section above.
-- Snapshot context succinctly in final updates: mention touched files, risks, and outstanding work.
-
-## Docker
-
-You can also build and run your app using [Docker](https://docs.docker.com/get-docker/).
-
-## Building the container
-
-First, build the docker container. There is a Dockerfile in the root of the repository. There is a convenience script, `docker-build.sh`, or you can use `docker` or `docker-compose`:
-
-```sh
-# docker
-DOCKER_BUILDKIT=1 docker build -f Dockerfile --target runtime -t python-uv-boilerplate:0.1 .
-
-# docker-compose
-docker-compose build
-```
-
-Once the container is built, you can run it with:
-
-```shell
-# docker
-docker run --rm --name my-container --env-file .env python-uv-boilerplate:0.1
-
-# docker-compose
-docker-compose up
-```
-
-## Jupyter
-
-If you're working within a project, you can start a Jupyter server with access to the project's virtual environment via the following:
-
-```bash
-uv run --with jupyter jupyter lab
-```
-
-By default, jupyter lab will start the server at <http://localhost:8888/lab>.
+| Prefix      | Purpose               |
+| ----------- | --------------------- |
+| `feat:`     | New feature           |
+| `fix:`      | Bug fix               |
+| `style:`    | Formatting/style only |
+| `refactor:` | Refactoring           |
+| `test:`     | Tests only            |
+| `docs:`     | Documentation only    |
+| `chore:`    | Build/tooling         |
+| `ci:`       | CI/CD changes         |

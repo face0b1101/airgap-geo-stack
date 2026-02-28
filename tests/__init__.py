@@ -1,2 +1,1 @@
-"""Test suite for python_uv_boilerplate."""
-
+"""Test suite for airgap_geocoding."""

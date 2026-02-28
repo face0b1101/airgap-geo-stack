@@ -12,12 +12,12 @@ This project was created from the
 The steps below replace every reference to `python-uv-boilerplate` with the real project
 identity and prepare the repository for active development.
 
-Work through each step in order. Do not skip ahead — later steps depend on the rename
+Work through each step in order. Do not skip ahead - later steps depend on the rename
 having been completed.
 
 ______________________________________________________________________
 
-## Step 1 — Gather Project Information
+## Step 1 - Gather Project Information
 
 Ask the user to confirm the following details before making any changes. Record the
 answers; you will use them in every subsequent step.
@@ -35,7 +35,7 @@ answers; you will use them in every subsequent step.
 
 ______________________________________________________________________
 
-## Step 2 — Run the Rename Script
+## Step 2 - Run the Rename Script
 
 The rename script rewrites package names, imports, config files, Docker assets, and the
 notebook in one pass. It reads the project name from `stdin`, so it can be driven
@@ -47,7 +47,7 @@ echo "<project-name>" | uv run rename_project.py
 
 Replace `<project-name>` with the kebab-case name from Step 1 (e.g. `my-cool-project`).
 
-The script touches the following files — verify each one was updated cleanly:
+The script touches the following files - verify each one was updated cleanly:
 
 | File | What changes |
 |---|---|
@@ -63,7 +63,7 @@ The script touches the following files — verify each one was updated cleanly:
 
 ______________________________________________________________________
 
-## Step 3 — Update Metadata the Script Does Not Touch
+## Step 3 - Update Metadata the Script Does Not Touch
 
 The rename script updates names and imports, but not project-specific descriptions or
 author details. Edit the following manually.
@@ -103,13 +103,13 @@ maintainers = [{ name = "<author name>", email = "<author email>" }]
 - <any additional notes>
 ```
 
-- Remove historical boilerplate changelog entries (`[0.3.0]`, `[0.2.0]`, etc.) — they
+- Remove historical boilerplate changelog entries (`[0.3.0]`, `[0.2.0]`, etc.) - they
   belong to the template, not this project.
 - Update the comparison links at the bottom to point to the correct repository URL.
 
 ______________________________________________________________________
 
-## Step 4 — Sync Dependencies and Verify
+## Step 4 - Sync Dependencies and Verify
 
 ```bash
 uv sync
@@ -120,7 +120,7 @@ All tests must pass before proceeding. If any fail, diagnose and fix before movi
 
 ______________________________________________________________________
 
-## Step 5 — Optional: Enable Pre-commit Hooks
+## Step 5 - Optional: Enable Pre-commit Hooks
 
 ```bash
 uv run pre-commit install
@@ -129,7 +129,7 @@ uv run pre-commit autoupdate --repo https://github.com/pre-commit/pre-commit-hoo
 
 ______________________________________________________________________
 
-## Step 6 — Commit the Setup
+## Step 6 - Commit the Setup
 
 Stage all changes and create the initial setup commit:
 
@@ -157,6 +157,6 @@ Use this as a final sanity check before handing back to the user.
 - [ ] `README.md`: opening paragraph reflects actual project goal
 - [ ] `CHANGELOG.md`: boilerplate entries removed; first real entry added
 - [ ] `uv sync` completed without errors
-- [ ] `make test` — all tests pass
+- [ ] `make test` - all tests pass
 - [ ] Pre-commit hooks installed (if required by the user)
 - [ ] Initial commit created
