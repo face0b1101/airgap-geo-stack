@@ -39,6 +39,39 @@ class GeocodeResult(BaseModel):
     raw: dict[str, Any] = {}
 
 
+class RouteManoeuvre(BaseModel):
+    """A single turn or manoeuvre instruction from an OSRM step."""
+
+    model_config = ConfigDict(frozen=True)
+
+    type: str
+    modifier: str | None = None
+    location: GeoPoint | None = None
+    bearing_before: int | None = None
+    bearing_after: int | None = None
+
+
+class RouteTurnStep(BaseModel):
+    """One navigation step within a route leg (when steps=True is requested)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    distance_m: float
+    duration_s: float
+    geometry: str
+    name: str
+    manoeuvre: RouteManoeuvre | None = None
+
+
+class RouteLeg(BaseModel):
+    """One leg of a route (segment between two consecutive waypoints)."""
+
+    distance_m: float
+    duration_s: float
+    steps: list[RouteTurnStep] = []
+    annotation: dict[str, Any] | None = None
+
+
 class RouteStep(BaseModel):
     """Summary of a single route returned by OSRM."""
 
@@ -47,6 +80,7 @@ class RouteStep(BaseModel):
     distance_m: float
     duration_s: float
     geometry: str
+    legs: list[RouteLeg] = []
 
 
 class RouteResult(BaseModel):
@@ -55,6 +89,8 @@ class RouteResult(BaseModel):
     profile: str
     origin: GeoPoint
     destination: GeoPoint
+    waypoints: list[GeoPoint] = []
+    snapped_waypoints: list[GeoPoint] = []
     routes: list[RouteStep] = []
     raw: dict[str, Any] = {}
 
