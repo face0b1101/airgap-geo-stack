@@ -192,8 +192,36 @@ any text-based inputs:
 }
 ```
 
-When origin or destination is supplied as a `{lat, lon}` object, the
-corresponding `*_address` field is `null`.
+#### Example — mixed input with `curl`
+
+Coordinate origin with a text destination and a text waypoint:
+
+```bash
+curl -s -X POST http://localhost:5000/route \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "origin":      { "lat": 51.5034, "lon": -0.1276 },
+    "destination": "Birmingham",
+    "waypoints":   ["Oxford"],
+    "profile":     "driving"
+  }'
+```
+
+Only geocoded locations have their address resolved — coordinate inputs
+return `null`:
+
+```json
+{
+  "profile": "driving",
+  "origin":              { "lat": 51.5034, "lon": -0.1276 },
+  "destination":         { "lat": 52.4862, "lon": -1.8904 },
+  "origin_address":      null,
+  "destination_address": { "name": "Birmingham", "city": "Birmingham", "country": "United Kingdom", ... },
+  "waypoint_addresses":  [ { "name": "Oxford", "city": "Oxford", "country": "United Kingdom", ... } ],
+  "routes": [ { "distance_m": 210530.2, "duration_s": 8415.7, "geometry": "...", "legs": [...] } ],
+  ...
+}
+```
 
 All fields except `origin` and `destination` are optional.
 
