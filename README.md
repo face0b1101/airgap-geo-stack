@@ -21,6 +21,7 @@ ______________________________________________________________________
 | **HAProxy**          | `haproxy`                               | `80`     | Reverse proxy for OSRM profiles and postcodes.io          |
 | **postcodes.io API** | `idealpostcodes/postcodes.io:latest`    | `8000`   | UK postcode lookup                                        |
 | **postcodes.io DB**  | `idealpostcodes/postcodes.io.db:latest` | internal | PostgreSQL backing store                                  |
+| **Airgap API**       | *(built locally)*                       | `5000`   | Unified FastAPI service exposing all four services        |
 
 See [`docker/README.md`](docker/README.md) for full deployment and air-gap transfer instructions.
 
@@ -181,21 +182,36 @@ make install   # runs uv sync - installs all dependencies
 
 ### Quick start
 
+All public functions are `async` and require an `httpx.AsyncClient`:
+
 ```python
+import asyncio
+import httpx
 from airgap_geo import geocoder, route, lookup_postcode, lookup_outcode
 
-# Forward geocode a place name or postcode
-result = geocoder("10 Downing Street, London")
+async def main():
+    async with httpx.AsyncClient() as client:
+        # Forward geocode a place name or postcode
+        result = await geocoder("10 Downing Street, London", client)
 
-# Reverse geocode / enrich a coordinate string
-result = geocoder("51.5034,-0.1276")
+        # Reverse geocode / enrich a coordinate string
+        result = await geocoder("51.5034,-0.1276", client)
 
-# Driving route between two points
-r = route((51.5034, -0.1276), (53.4808, -2.2426), profile="driving")
+        # Driving route between two points (with optional intermediate waypoints)
+        r = await route(
+            (51.5034, -0.1276),
+            (53.4808, -2.2426),
+            client,
+            profile="driving",
+            waypoints=[(52.4862, -1.8904)],
+            steps=True,
+        )
 
-# UK postcode lookup
-info = lookup_postcode("SW1A 2AA")
-outcode = lookup_outcode("SW1A")
+        # UK postcode lookup
+        info = await lookup_postcode("SW1A 2AA", client)
+        outcode = await lookup_outcode("SW1A", client)
+
+asyncio.run(main())
 ```
 
 ### Configuration
@@ -247,6 +263,15 @@ docker/
   nominatim/
   photon/
   osrm/
+notebooks/
+  README.md               # Notebook overview and usage
+  01-geocoding.ipynb      # Forward and reverse geocoding
+  02-routing.ipynb        # Basic routing
+  03-routing-enhanced.ipynb  # Waypoints, steps, alternatives, annotations, exclusions
+  04-postcodes.ipynb      # UK postcode and outcode lookups
+  05-combined-workflow.ipynb # End-to-end geocode → route → postcode
+  06-fastapi.ipynb        # FastAPI REST API usage
+  07-performance.ipynb    # Benchmarking and concurrency
 tests/
   test_geocoding.py
   test_routing.py
@@ -256,6 +281,8 @@ tests/
     test_routing.py
     test_postcodes.py
     test_health.py
+  test_live/              # Integration tests (require running Docker services)
+    test_integration.py
 ```
 
 ______________________________________________________________________
@@ -270,7 +297,9 @@ ______________________________________________________________________
 
 ```bash
 make install    # uv sync - install all dependencies
-make test       # run the pytest suite
+make test       # run the pytest suite (excludes live tests)
+make test-live  # run live integration tests (requires running Docker services)
+make test-all   # run all tests including live
 make lint       # ruff check
 make format     # ruff format
 make check      # lint + test combined
