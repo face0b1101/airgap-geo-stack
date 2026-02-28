@@ -168,6 +168,33 @@ Mixed input (coordinate origin, text destination) is also supported:
 }
 ```
 
+#### Example — route by name with `curl`
+
+```bash
+curl -s -X POST http://localhost:5000/route \
+  -H 'Content-Type: application/json' \
+  -d '{"origin": "Westminster", "destination": "Birmingham", "profile": "driving"}'
+```
+
+The response includes the resolved coordinates **and** address metadata for
+any text-based inputs:
+
+```json
+{
+  "profile": "driving",
+  "origin":              { "lat": 51.4975, "lon": -0.1357 },
+  "destination":         { "lat": 52.4862, "lon": -1.8904 },
+  "origin_address":      { "name": "Westminster", "city": "London", "country": "United Kingdom", ... },
+  "destination_address": { "name": "Birmingham", "city": "Birmingham", "country": "United Kingdom", ... },
+  "waypoint_addresses":  [],
+  "routes": [ { "distance_m": 195210.4, "duration_s": 7842.1, "geometry": "...", "legs": [...] } ],
+  ...
+}
+```
+
+When origin or destination is supplied as a `{lat, lon}` object, the
+corresponding `*_address` field is `null`.
+
 All fields except `origin` and `destination` are optional.
 
 | Field               | Type                                                                  | Default      | Description                                             |
