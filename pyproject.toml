@@ -1,6 +1,6 @@
 [project]
 name = "airgap-geo-stack"
-version = "1.2.0"
+version = "1.3.0"
 description = "Self-contained Python library and Docker Compose stack for fully air-gapped geocoding, reverse geocoding, routing, and UK postcode lookup"
 readme = "README.md"
 authors = [

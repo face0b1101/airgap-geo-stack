@@ -87,22 +87,34 @@ class RouteRequest(BaseModel):
         default=None,
         description="Road classes to avoid, e.g. ['motorway', 'toll', 'ferry']",
     )
+    resolve_addresses: bool = Field(
+        default=False,
+        description="Reverse-geocode coordinate inputs to populate address metadata",
+    )
 
 
 async def _resolve_location(
-    location: str | GeoPoint, label: str, client: httpx.AsyncClient
+    location: str | GeoPoint,
+    label: str,
+    client: httpx.AsyncClient,
+    *,
+    resolve: bool = False,
 ) -> tuple[GeoPoint, Address | None]:
     """Resolve a location field to a GeoPoint and optional Address.
 
-    If *location* is already a :class:`GeoPoint`, return it directly with no
-    address.  If it is a string, geocode it via :func:`geocoder` and extract
-    both the coordinate and the address.
+    If *location* is already a :class:`GeoPoint`, return it directly.  When
+    *resolve* is ``True``, coordinate inputs are reverse-geocoded via Photon
+    to obtain address metadata.  If it is a string, geocode it via
+    :func:`geocoder` and extract both the coordinate and the address.
 
     Raises:
         ValueError: If geocoding fails for a text location.
     """
     if isinstance(location, GeoPoint):
-        return location, None
+        if not resolve:
+            return location, None
+        result = await geocoder(f"{location.lat},{location.lon}", client)
+        return location, result.address if result else None
 
     result: GeocodeResult | None = await geocoder(location, client)
     if result is None:
@@ -133,6 +145,7 @@ def _resolved_cache_key(
         "geometries": body.geometries,
         "continue_straight": body.continue_straight,
         "exclude": list(body.exclude) if body.exclude else None,
+        "resolve_addresses": body.resolve_addresses,
     }
     serialised = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(serialised.encode()).hexdigest()
@@ -152,18 +165,22 @@ async def calculate_route(request: Request, body: RouteRequest) -> RouteResult:
     """
     client: httpx.AsyncClient = request.app.state.http_client
 
+    resolve = body.resolve_addresses
+
     try:
         origin_point, origin_addr = await _resolve_location(
-            body.origin, "origin", client
+            body.origin, "origin", client, resolve=resolve
         )
         dest_point, dest_addr = await _resolve_location(
-            body.destination, "destination", client
+            body.destination, "destination", client, resolve=resolve
         )
 
         wp_points: list[GeoPoint] = []
         wp_addrs: list[Address] = []
         for idx, wp in enumerate(body.waypoints or []):
-            pt, addr = await _resolve_location(wp, f"waypoint[{idx}]", client)
+            pt, addr = await _resolve_location(
+                wp, f"waypoint[{idx}]", client, resolve=resolve
+            )
             wp_points.append(pt)
             if addr is not None:
                 wp_addrs.append(addr)

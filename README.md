@@ -223,12 +223,41 @@ return `null`:
 }
 ```
 
+To also reverse-geocode the coordinate origin, set `resolve_addresses`:
+
+```bash
+curl -s -X POST http://localhost:5000/route \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "origin":             { "lat": 51.5034, "lon": -0.1276 },
+    "destination":        "Birmingham",
+    "waypoints":          ["Oxford"],
+    "profile":            "driving",
+    "resolve_addresses":  true
+  }'
+```
+
+Now all address fields are populated:
+
+```json
+{
+  "profile": "driving",
+  "origin":              { "lat": 51.5034, "lon": -0.1276 },
+  "destination":         { "lat": 52.4862, "lon": -1.8904 },
+  "origin_address":      { "name": "Westminster", "city": "London", "country": "United Kingdom", ... },
+  "destination_address": { "name": "Birmingham", "city": "Birmingham", "country": "United Kingdom", ... },
+  "waypoint_addresses":  [ { "name": "Oxford", "city": "Oxford", "country": "United Kingdom", ... } ],
+  "routes": [ { "distance_m": 210530.2, "duration_s": 8415.7, "geometry": "...", "legs": [...] } ],
+  ...
+}
+```
+
 All fields except `origin` and `destination` are optional.
 
 | Field               | Type                                                                  | Default      | Description                                             |
 | ------------------- | --------------------------------------------------------------------- | ------------ | ------------------------------------------------------- |
-| `origin`            | `{lat, lon}` \| `string`                                             | *(required)* | Start location — coordinates or text                    |
-| `destination`       | `{lat, lon}` \| `string`                                             | *(required)* | End location — coordinates or text                      |
+| `origin`            | `{lat, lon}` \| `string`                                              | *(required)* | Start location — coordinates or text                    |
+| `destination`       | `{lat, lon}` \| `string`                                              | *(required)* | End location — coordinates or text                      |
 | `profile`           | `"driving"` \| `"walking"` \| `"cycling"`                             | `"driving"`  | Routing profile                                         |
 | `waypoints`         | `[{lat, lon} \| string, ...]`                                         | `null`       | Ordered intermediate points (coordinates or text)       |
 | `steps`             | `bool`                                                                | `false`      | Include turn-by-turn manoeuvre steps per leg            |
@@ -238,15 +267,18 @@ All fields except `origin` and `destination` are optional.
 | `geometries`        | `"polyline"` \| `"polyline6"` \| `"geojson"`                          | `"polyline"` | Route geometry encoding                                 |
 | `continue_straight` | `bool`                                                                | `null`       | Bias against U-turns at waypoints                       |
 | `exclude`           | `["motorway"\|"toll"\|"ferry", ...]`                                  | `null`       | Road classes to avoid                                   |
+| `resolve_addresses` | `bool`                                                                | `false`      | Reverse-geocode coordinate inputs to populate addresses |
 
-When text locations are geocoded, the response includes additional address
-metadata:
+Text inputs are always geocoded and their addresses are included
+automatically. Set `resolve_addresses: true` to also reverse-geocode
+coordinate (`{lat, lon}`) inputs via Photon — useful when you need address
+metadata for every point regardless of input format.
 
-| Response field          | Type             | Description                                      |
-| ----------------------- | ---------------- | ------------------------------------------------ |
-| `origin_address`        | `Address \| null` | Resolved address for origin (null if coordinates) |
-| `destination_address`   | `Address \| null` | Resolved address for destination                  |
-| `waypoint_addresses`    | `[Address, ...]` | Resolved addresses for geocoded waypoints         |
+| Response field        | Type              | Description                                                          |
+| --------------------- | ----------------- | -------------------------------------------------------------------- |
+| `origin_address`      | `Address \| null` | Resolved address for origin (populated for text or when flag is set) |
+| `destination_address` | `Address \| null` | Resolved address for destination                                     |
+| `waypoint_addresses`  | `[Address, ...]`  | Resolved addresses for geocoded waypoints                            |
 
 ### Caching
 

@@ -497,3 +497,78 @@ class TestSmartRouteEndpoint:
         assert data["origin_address"] is None
         assert data["destination_address"] is None
         assert data["waypoint_addresses"] == []
+
+    def test_resolve_addresses_populates_coordinate_metadata(
+        self, client: TestClient, httpx_mock
+    ):
+        """resolve_addresses=true reverse-geocodes coordinate inputs."""
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=_PHOTON_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=_PHOTON_BIRMINGHAM, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={
+                "origin": {"lat": 51.4975, "lon": -0.1357},
+                "destination": {"lat": 52.4862, "lon": -1.8904},
+                "resolve_addresses": True,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["origin_address"] is not None
+        assert data["origin_address"]["city"] == "London"
+        assert data["destination_address"] is not None
+        assert data["destination_address"]["city"] == "Birmingham"
+
+    def test_resolve_addresses_false_leaves_null(self, client: TestClient, httpx_mock):
+        """resolve_addresses=false (or omitted) leaves address fields null."""
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        response = client.post(
+            "/route",
+            json={
+                "origin": {"lat": 51.4975, "lon": -0.1357},
+                "destination": {"lat": 52.4862, "lon": -1.8904},
+                "resolve_addresses": False,
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["origin_address"] is None
+        assert data["destination_address"] is None
+
+    def test_resolve_addresses_cache_separation(self, client: TestClient, httpx_mock):
+        """resolve_addresses true/false produce separate cache entries."""
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=_PHOTON_WESTMINSTER, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=_PHOTON_BIRMINGHAM, status_code=200
+        )
+        httpx_mock.add_response(
+            url=_OSRM_DRIVING_URL, json=OSRM_RESPONSE, status_code=200
+        )
+
+        coords = {
+            "origin": {"lat": 51.4975, "lon": -0.1357},
+            "destination": {"lat": 52.4862, "lon": -1.8904},
+        }
+        client.post("/route", json={**coords, "resolve_addresses": False})
+        client.post("/route", json={**coords, "resolve_addresses": True})
+
+        osrm_requests = [
+            r for r in httpx_mock.get_requests() if "/route/v1/" in str(r.url)
+        ]
+        assert len(osrm_requests) == 2

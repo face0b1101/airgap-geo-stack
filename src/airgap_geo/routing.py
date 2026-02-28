@@ -225,6 +225,7 @@ async def route_by_name(
     geometries: str = "polyline",
     continue_straight: bool | None = None,
     exclude: list[str] | None = None,
+    resolve_addresses: bool = False,
 ) -> RouteResult:
     """Geocode text locations and calculate a route between them.
 
@@ -246,6 +247,9 @@ async def route_by_name(
         geometries: Route geometry encoding.
         continue_straight: Bias against U-turns at waypoints.
         exclude: Road classes to avoid.
+        resolve_addresses: Accepted for API parity with the REST endpoint
+            but has no effect here — all inputs are strings so ``geocoder()``
+            always resolves addresses.
 
     Returns:
         A :class:`RouteResult` with ``origin_address``,

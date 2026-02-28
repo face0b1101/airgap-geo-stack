@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-02-28
+
+### Added
+
+- **`resolve_addresses` opt-in flag** on `POST /route` — when `true`, coordinate (`{lat, lon}`) inputs are reverse-geocoded via Photon to populate `origin_address`, `destination_address`, and `waypoint_addresses` (default `false` preserves existing performance)
+- `resolve_addresses` keyword argument on `route_by_name()` for API parity (no-op since text inputs are always geocoded)
+
+### Changed
+
+- `_resolve_location` helper reverse-geocodes `GeoPoint` inputs when the flag is set
+- Route cache key now includes `resolve_addresses` so `true`/`false` requests produce separate cache entries
+
 ## [1.2.0] - 2026-02-28
 
 ### Added
@@ -94,4 +106,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.0.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v0.1.0...v1.0.0
 [1.1.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.0.0...v1.1.0
 [1.2.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...v1.2.0
-[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.2.0...HEAD
+[1.3.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.2.0...v1.3.0
+[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.3.0...HEAD
