@@ -62,16 +62,16 @@ and controlled via **profiles** so you can start only what you need.
 
 ### Profiles
 
-| Profile      | Services included                                                    |
-| ------------ | -------------------------------------------------------------------- |
-| `nominatim`  | Nominatim                                                            |
-| `photon`     | Photon                                                               |
-| `geocoding`  | Nominatim + Photon                                                   |
-| `osrm`       | OSRM backends (driving/walking/cycling) + HAProxy + OSRM frontend    |
-| `postcodes`  | postcodes.io API + DB                                                |
-| `routing`    | OSRM + HAProxy + OSRM frontend + postcodes.io                       |
-| `api`        | FastAPI service                                                      |
-| `all`        | Everything                                                           |
+| Profile     | Services included                                                 |
+| ----------- | ----------------------------------------------------------------- |
+| `nominatim` | Nominatim                                                         |
+| `photon`    | Photon                                                            |
+| `geocoding` | Nominatim + Photon                                                |
+| `osrm`      | OSRM backends (driving/walking/cycling) + HAProxy + OSRM frontend |
+| `postcodes` | postcodes.io API + DB                                             |
+| `routing`   | OSRM + HAProxy + OSRM frontend + postcodes.io                     |
+| `api`       | FastAPI service                                                   |
+| `all`       | Everything                                                        |
 
 ### Make targets
 
