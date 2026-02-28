@@ -72,7 +72,7 @@ cd docker
 
 | Service          | What it needs                                                                                          | Approx. size               |
 | ---------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
-| **Nominatim**    | `great-britain-latest.osm.pbf` in `nominatim/data/`; import runs on first `docker compose up` (2–6 hr) | ~1.2 GB                    |
+| **Nominatim**    | `${PBF_REGION}-latest.osm.pbf` in `nominatim/data/`; import runs on first `docker compose up` (2–6 hr) | ~1.2 GB                    |
 | **OSRM**         | Pre-processed graph files in `osrm/data/{car,foot,bike}/`                                              | ~1.2 GB + ~10 GB processed |
 | **Photon**       | European dataset downloaded into `photon-data/`                                                        | ~60 GB                     |
 | **postcodes.io** | None — data is pre-loaded in the DB image                                                              | —                          |
@@ -90,6 +90,39 @@ Set the following variables in the project root `.env` file:
 | `OSRM_API`      | `http://localhost:80`   | OSRM routing via HAProxy                                                                   |
 | `POSTCODES_URL` | `http://localhost:8000` | postcodes.io - or use `http://localhost:80` to route via HAProxy                           |
 | `OSRM_DATA`     | `./osrm/data`           | Path containing `car/`, `foot/`, `bike/` pre-processed OSRM graphs (relative to `docker/`) |
+| `OSRM_IMAGE`    | `osrm/osrm-backend`     | OSRM Docker image — override with a locally-built ARM64 image on Apple Silicon             |
+| `OSRM_PLATFORM` | `linux/amd64`           | Target platform for OSRM image — set to `linux/arm64` when using a native ARM64 build      |
+| `PBF_URL`       | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de)            |
+| `PBF_REGION`    | `great-britain`         | Region name stem used to construct PBF/OSRM filenames (e.g. `germany`, `france`)           |
+
+______________________________________________________________________
+
+## Apple Silicon (ARM64)
+
+Several images in this stack (`osrm/osrm-backend`, `osrm/osrm-frontend`,
+`idealpostcodes/postcodes.io`, `idealpostcodes/postcodes.io.db`) are published
+for `linux/amd64` only. Docker Desktop runs them under Rosetta 2 emulation,
+which works correctly but is slower than native.
+
+The OSRM backend is the most performance-sensitive service (CPU-heavy C++ routing
+engine), so a helper script is provided to build it natively for ARM64:
+
+```bash
+# One-time build (~30 min)
+./build-osrm-arm64.sh
+
+# Then add to your project root .env:
+OSRM_IMAGE=osrm-backend:arm64-local
+OSRM_PLATFORM=linux/arm64
+```
+
+After that, `make prepare` and `docker compose up` will use the native image.
+No changes are needed for the other amd64-only services — they run fine under
+Rosetta with negligible overhead.
+
+> **Tip:** Ensure "Use Rosetta for x86_64/amd64 emulation on Apple Silicon" is
+> enabled in Docker Desktop → Settings → General (on by default in recent
+> versions).
 
 ______________________________________________________________________
 
@@ -149,9 +182,15 @@ On the air-gapped host, update `docker/photon/docker-compose.yml` to reference
 
 ### 3. Download OSM PBF data for Nominatim and OSRM
 
+Set `PBF_URL` and `PBF_REGION` in your `.env` file for the desired region, then run
+`make prepare` (or `docker/prepare-data.sh`). To download manually:
+
 ```bash
 wget https://download.geofabrik.de/europe/great-britain-latest.osm.pbf
 ```
+
+Browse [https://download.geofabrik.de](https://download.geofabrik.de) to find the URL
+for a different region.
 
 Copy the `.pbf` file to `docker/nominatim/data/` for Nominatim.
 
@@ -164,7 +203,7 @@ commands).
 Transfer via USB drive, secure file copy, or your organisation's approved method:
 
 - All `.tar` image archives
-- `docker/nominatim/data/great-britain-latest.osm.pbf`
+- `docker/nominatim/data/${PBF_REGION}-latest.osm.pbf`
 - Pre-processed OSRM graph directories (`car/`, `foot/`, `bike/`)
 - This repository (or just the `docker/` tree + `.env`)
 

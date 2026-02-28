@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
     shm_size: 1g
     environment:
-      - PBF_PATH=/nominatim/data/great-britain-latest.osm.pbf
+      - PBF_PATH=/nominatim/data/${PBF_REGION:-great-britain}-latest.osm.pbf
       - IMPORT_GB_POSTCODES=true
       - IMPORT_STYLE=full
       - NOMINATIM_PASSWORD=nominatim
@@ -48,30 +48,33 @@ services:
   # OSRM routing backends (driving / walking / cycling)
   # ---------------------------------------------------------------------------
   osrm-backend-driving:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-driving
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/car:/data:ro
     expose:
       - "5000"
 
   osrm-backend-walking:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-walking
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/foot:/data:ro
     expose:
       - "5000"
 
   osrm-backend-cycling:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-cycling
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/bike:/data:ro
     expose:
@@ -99,6 +102,7 @@ services:
   # ---------------------------------------------------------------------------
   osrm-frontend:
     image: osrm/osrm-frontend:latest
+    platform: linux/amd64
     container_name: osrm-frontend
     restart: unless-stopped
     ports:
@@ -111,11 +115,13 @@ services:
   # ---------------------------------------------------------------------------
   postcodes-db:
     image: idealpostcodes/postcodes.io.db:latest
+    platform: linux/amd64
     container_name: postcodes-db
     restart: unless-stopped
 
   postcodes-api:
     image: idealpostcodes/postcodes.io:latest
+    platform: linux/amd64
     container_name: postcodes-api
     restart: unless-stopped
     environment:
@@ -127,6 +133,29 @@ services:
       - "8000"
     depends_on:
       - postcodes-db
+
+  # ---------------------------------------------------------------------------
+  # Airgap Geocoding API - unified FastAPI service (port 5000)
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+    container_name: airgap-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-5000}:5000"
+    environment:
+      - PHOTON_API=http://photon:2322
+      - NOMINATIM_URL=http://nominatim:8080
+      - OSRM_API=http://haproxy:80
+      - POSTCODES_URL=http://haproxy:80
+      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-3600}
+      - CACHE_MAX_SIZE=${CACHE_MAX_SIZE:-1024}
+    depends_on:
+      - nominatim
+      - photon
+      - haproxy
 
 volumes:
   nominatim-data:

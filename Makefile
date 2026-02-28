@@ -1,4 +1,4 @@
-.PHONY: install lint format test precommit run check prepare
+.PHONY: install lint format test precommit run check prepare serve
 
 install:
 	uv sync
@@ -22,3 +22,6 @@ check: lint test
 
 prepare:
 	cd docker && bash prepare-data.sh $(ARGS)
+
+serve:
+	uv run uvicorn airgap_geo_api.app:create_app --factory --reload --port 5000

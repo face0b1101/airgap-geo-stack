@@ -1,29 +1,32 @@
 services:
   osrm-backend-driving:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-driving
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/car:/data:ro
     expose:
       - "5000"
 
   osrm-backend-walking:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-walking
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/foot:/data:ro
     expose:
       - "5000"
 
   osrm-backend-cycling:
-    image: osrm/osrm-backend
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-cycling
     restart: unless-stopped
-    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    command: osrm-routed --algorithm mld /data/${PBF_REGION:-great-britain}-latest.osrm
     volumes:
       - ${OSRM_DATA}/bike:/data:ro
     expose:
@@ -45,6 +48,7 @@ services:
 
   osrm-frontend:
     image: osrm/osrm-frontend:latest
+    platform: linux/amd64
     container_name: osrm-frontend
     restart: unless-stopped
     ports:
@@ -54,11 +58,13 @@ services:
 
   postcodes-db:
     image: idealpostcodes/postcodes.io.db:latest
+    platform: linux/amd64
     container_name: postcodes-db
     restart: unless-stopped
 
   postcodes-api:
     image: idealpostcodes/postcodes.io:latest
+    platform: linux/amd64
     container_name: postcodes-api
     restart: unless-stopped
     environment:

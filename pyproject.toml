@@ -1,6 +1,6 @@
 [project]
-name = "airgap-geocoding-stack"
-version = "0.1.0"
+name = "airgap-geo-stack"
+version = "1.0.0"
 description = "Self-contained Python library and Docker Compose stack for fully air-gapped geocoding, reverse geocoding, routing, and UK postcode lookup"
 readme = "README.md"
 authors = [
@@ -12,19 +12,26 @@ maintainers = [
 license = { file = "LICENSE" }
 requires-python = ">=3.13"
 dependencies = [
+    "cachetools>=7.0.1",
+    "fastapi>=0.134.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
     "python-decouple>=3.8",
-    "requests>=2.32.0",
+    "uvicorn[standard]>=0.41.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/face0b1101/airgap-geocoding-stack"
-Documentation = "https://github.com/face0b1101/airgap-geocoding-stack"
-Repository = "https://github.com/face0b1101/airgap-geocoding-stack"
-"Bug Tracker" = "https://github.com/face0b1101/airgap-geocoding-stack/issues"
-Changelog = "https://github.com/face0b1101/airgap-geocoding-stack/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/face0b1101/airgap-geo-stack"
+Documentation = "https://github.com/face0b1101/airgap-geo-stack"
+Repository = "https://github.com/face0b1101/airgap-geo-stack"
+"Bug Tracker" = "https://github.com/face0b1101/airgap-geo-stack/issues"
+Changelog = "https://github.com/face0b1101/airgap-geo-stack/blob/main/CHANGELOG.md"
+
+[project.scripts]
+serve = "airgap_geo_api.app:create_app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/airgap_geocoding"]
+packages = ["src/airgap_geo", "src/airgap_geo_api"]
 
 [build-system]
 requires = ["hatchling"]
@@ -71,6 +78,11 @@ dev = [
     "pandas>=3.0.1",
     "pre-commit>=3.8.0",
     "pytest>=8.3.3",
-    "responses>=0.25.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-httpx>=0.35.0",
     "ruff>=0.6.8",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

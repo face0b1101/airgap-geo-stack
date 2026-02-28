@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     shm_size: 1g
     environment:
-      - PBF_PATH=/nominatim/data/great-britain-latest.osm.pbf
+      - PBF_PATH=/nominatim/data/${PBF_REGION:-great-britain}-latest.osm.pbf
       - IMPORT_GB_POSTCODES=true
       - IMPORT_STYLE=full
       - NOMINATIM_PASSWORD=nominatim

@@ -1,4 +1,4 @@
-# `airgap-geocoding-stack`
+# `airgap-geo-stack`
 
 A self-contained Python library and Docker Compose stack for fully air-gapped geocoding,
 reverse geocoding, routing, and UK postcode lookup - with zero runtime dependency on
@@ -41,7 +41,7 @@ Individual services can be skipped with `--skip-nominatim`, `--skip-osrm`, or `-
 
 | Service          | What it needs                                                   | Approx. size               | Time                              |
 | ---------------- | --------------------------------------------------------------- | -------------------------- | --------------------------------- |
-| **Nominatim**    | Great Britain PBF download; import on first `docker compose up` | ~1.2 GB download           | minutes (download), 2–6 hr import |
+| **Nominatim**    | PBF download (set `PBF_URL`/`PBF_REGION`); import on first `docker compose up` | ~1.2 GB download           | minutes (download), 2–6 hr import |
 | **OSRM**         | PBF download + extract/partition/customise per profile          | ~1.2 GB + ~10 GB processed | 1–3 hours                         |
 | **Photon**       | European dataset download                                       | ~60 GB                     | hours (network-dependent)         |
 | **postcodes.io** | None — data is pre-loaded in the DB image                       | —                          | —                                 |
@@ -53,20 +53,73 @@ See individual service READMEs for details:
 
 ______________________________________________________________________
 
+## REST API (FastAPI)
+
+An HTTP API layer wraps the Python library, exposing all four services over a single port with normalised JSON responses. It is suitable for non-Python consumers or multi-language teams.
+
+### Running locally
+
+```bash
+make serve          # starts uvicorn on http://localhost:5000 with --reload
+```
+
+Interactive docs are available at `http://localhost:5000/docs` (Swagger UI) and `http://localhost:5000/redoc`.
+
+### Running via Docker Compose
+
+The `api` service is included in [`docker/docker-compose.yml`](docker/docker-compose.yml) and depends on all four backends:
+
+```bash
+docker compose --env-file .env up -d api
+```
+
+### Endpoints
+
+| Method | Path                    | Description                                                                    |
+| ------ | ----------------------- | ------------------------------------------------------------------------------ |
+| GET    | `/geocode?q={query}`    | Forward geocode a place name / postcode, or reverse geocode a `lat,lon` string |
+| POST   | `/route`                | Calculate a driving / walking / cycling route                                  |
+| GET    | `/postcodes/{postcode}` | UK full postcode lookup                                                        |
+| GET    | `/outcodes/{outcode}`   | UK outcode (district) lookup                                                   |
+| GET    | `/health`               | Per-service health status and latency                                          |
+
+#### POST /route — request body
+
+```json
+{
+  "origin":      { "lat": 51.5034, "lon": -0.1276 },
+  "destination": { "lat": 53.4808, "lon": -2.2426 },
+  "profile":     "driving"
+}
+```
+
+`profile` must be one of `"driving"`, `"walking"`, or `"cycling"`.
+
+### Caching
+
+All read endpoints use an in-process TTL cache (default: 1 hour, max 1024 entries per domain). Configure via environment variables:
+
+| Variable            | Default | Description                      |
+| ------------------- | ------- | -------------------------------- |
+| `CACHE_TTL_SECONDS` | `3600`  | Time-to-live for cached results  |
+| `CACHE_MAX_SIZE`    | `1024`  | Maximum entries per cache domain |
+
+______________________________________________________________________
+
 ## Python Library
 
 ### Installation
 
 ```bash
-git clone https://github.com/face0b1101/airgap-geocoding-stack
-cd airgap-geocoding-stack
+git clone https://github.com/face0b1101/airgap-geo-stack
+cd airgap-geo-stack
 make install   # runs uv sync - installs all dependencies
 ```
 
 ### Quick start
 
 ```python
-from airgap_geocoding import geocoder, route, lookup_postcode, lookup_outcode
+from airgap_geo import geocoder, route, lookup_postcode, lookup_outcode
 
 # Forward geocode a place name or postcode
 result = geocoder("10 Downing Street, London")
@@ -91,12 +144,17 @@ All service URLs are read from environment variables (via `python-decouple`). Co
 cp .env.example .env
 ```
 
-| Variable        | Default                 | Description                      |
-| --------------- | ----------------------- | -------------------------------- |
-| `PHOTON_API`    | `http://localhost:2322` | Photon reverse geocoding service |
-| `NOMINATIM_URL` | `http://localhost:8080` | Nominatim geocoding service      |
-| `OSRM_API`      | `http://localhost:80`   | OSRM routing API (via HAProxy)   |
-| `POSTCODES_URL` | `http://localhost:8000` | postcodes.io API                 |
+| Variable            | Default                 | Description                                                                      |
+| ------------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| `PHOTON_API`        | `http://localhost:2322` | Photon reverse geocoding service                                                 |
+| `NOMINATIM_URL`     | `http://localhost:8080` | Nominatim geocoding service                                                      |
+| `OSRM_API`          | `http://localhost:80`   | OSRM routing API (via HAProxy)                                                   |
+| `POSTCODES_URL`     | `http://localhost:8000` | postcodes.io API                                                                 |
+| `API_PORT`          | `5000`                  | Port the FastAPI service listens on                                              |
+| `CACHE_TTL_SECONDS` | `3600`                  | Cache entry TTL in seconds                                                       |
+| `CACHE_MAX_SIZE`    | `1024`                  | Max entries per cache domain                                                     |
+| `PBF_URL`           | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de) |
+| `PBF_REGION`        | `great-britain`         | Region stem used in PBF/OSRM filenames (e.g. `germany`, `france`)               |
 
 ______________________________________________________________________
 
@@ -104,14 +162,23 @@ ______________________________________________________________________
 
 ```sh
 src/
-  airgap_geocoding/
-    __init__.py       # Public API: geocoder, route, lookup_postcode, lookup_outcode
-    settings.py       # Environment-variable configuration
-    geocoding.py      # photon_reverse_geocode, nominatim_geocoder, geocoder
-    routing.py        # route
-    postcodes.py      # lookup_postcode, lookup_outcode
+  airgap_geo/
+    __init__.py           # Public API: geocoder, route, lookup_postcode, lookup_outcode + models
+    settings.py           # Environment-variable configuration
+    models.py             # Pydantic response models (GeoPoint, GeocodeResult, RouteResult, ...)
+    geocoding.py          # photon_reverse_geocode, nominatim_geocoder, geocoder
+    routing.py            # route
+    postcodes.py          # lookup_postcode, lookup_outcode
+  airgap_geo_api/
+    app.py                # FastAPI app factory and /health endpoint
+    cache.py              # In-process TTL cache
+    routers/
+      geocode.py          # GET /geocode
+      routing.py          # POST /route
+      postcodes.py        # GET /postcodes/{postcode}, GET /outcodes/{outcode}
 docker/
-  README.md           # Air-gap deployment guide
+  README.md               # Air-gap deployment guide
+  api/Dockerfile          # FastAPI service image
   nominatim/
   photon/
   osrm/
@@ -119,6 +186,11 @@ tests/
   test_geocoding.py
   test_routing.py
   test_postcodes.py
+  test_api/
+    test_geocode.py
+    test_routing.py
+    test_postcodes.py
+    test_health.py
 ```
 
 ______________________________________________________________________

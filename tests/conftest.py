@@ -1,1 +1,1 @@
-"""Shared pytest fixtures for airgap_geocoding tests."""
+"""Shared pytest fixtures for airgap_geo tests."""

@@ -1,14 +1,18 @@
-"""Tests for airgap_geocoding.geocoding."""
+"""Tests for airgap_geo.geocoding."""
 
+from __future__ import annotations
+
+import re
+
+import httpx
 import pytest
-import responses as responses_lib
 
-from airgap_geocoding.geocoding import (
+from airgap_geo.geocoding import (
     geocoder,
     nominatim_geocoder,
     photon_reverse_geocode,
 )
-from airgap_geocoding.settings import NOMINATIM_URL, PHOTON_API
+from airgap_geo.settings import NOMINATIM_URL, PHOTON_API
 
 PHOTON_FEATURE = {
     "type": "Feature",
@@ -17,6 +21,7 @@ PHOTON_FEATURE = {
         "name": "10 Downing Street",
         "city": "London",
         "country": "United Kingdom",
+        "countrycode": "GB",
     },
 }
 
@@ -31,150 +36,131 @@ NOMINATIM_RESULT = [
     }
 ]
 
+_PHOTON_REVERSE_URL = re.compile(rf"{re.escape(PHOTON_API)}/reverse.*")
+_NOMINATIM_SEARCH_URL = re.compile(rf"{re.escape(NOMINATIM_URL)}/search.*")
+
 
 class TestPhotonReverseGeocode:
     """Tests for photon_reverse_geocode."""
 
-    @responses_lib.activate
-    def test_happy_path(self):
+    async def test_happy_path(self, httpx_mock):
         """Returns the first feature on a successful response."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
-            json=PHOTON_RESPONSE,
-            status=200,
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=PHOTON_RESPONSE, status_code=200
         )
-        result = photon_reverse_geocode(51.5034, -0.1276)
+        async with httpx.AsyncClient() as client:
+            result = await photon_reverse_geocode(51.5034, -0.1276, client)
         assert result == PHOTON_FEATURE
 
-    @responses_lib.activate
-    def test_non_200_returns_empty(self):
+    async def test_non_200_returns_empty(self, httpx_mock):
         """Returns empty dict when the API responds with a non-200 status."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
-            json={"error": "not found"},
-            status=404,
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json={"error": "not found"}, status_code=404
         )
-        result = photon_reverse_geocode(51.5034, -0.1276)
+        async with httpx.AsyncClient() as client:
+            result = await photon_reverse_geocode(51.5034, -0.1276, client)
         assert result == {}
 
-    @responses_lib.activate
-    def test_empty_features_returns_empty(self):
+    async def test_empty_features_returns_empty(self, httpx_mock):
         """Returns empty dict when the features list is empty."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL,
             json={"type": "FeatureCollection", "features": []},
-            status=200,
+            status_code=200,
         )
-        result = photon_reverse_geocode(51.5034, -0.1276)
+        async with httpx.AsyncClient() as client:
+            result = await photon_reverse_geocode(51.5034, -0.1276, client)
         assert result == {}
 
 
 class TestNominatimGeocoder:
     """Tests for nominatim_geocoder."""
 
-    @responses_lib.activate
-    def test_happy_path(self):
+    async def test_happy_path(self, httpx_mock):
         """Returns the first result on a successful response."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json=NOMINATIM_RESULT,
-            status=200,
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=NOMINATIM_RESULT, status_code=200
         )
-        result = nominatim_geocoder("10 Downing Street London")
+        async with httpx.AsyncClient() as client:
+            result = await nominatim_geocoder("10 Downing Street London", client)
         assert result["lat"] == "51.5034"
         assert result["lon"] == "-0.1276"
 
-    @responses_lib.activate
-    def test_non_200_returns_empty(self):
+    async def test_non_200_returns_empty(self, httpx_mock):
         """Returns empty dict when the API responds with a non-200 status."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json={"error": "server error"},
-            status=500,
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json={"error": "server error"}, status_code=500
         )
-        result = nominatim_geocoder("Nowhere")
+        async with httpx.AsyncClient() as client:
+            result = await nominatim_geocoder("Nowhere", client)
         assert result == {}
 
-    @responses_lib.activate
-    def test_empty_results_returns_empty(self):
+    async def test_empty_results_returns_empty(self, httpx_mock):
         """Returns empty dict when no results are returned."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json=[],
-            status=200,
-        )
-        result = nominatim_geocoder("zzz-does-not-exist")
+        httpx_mock.add_response(url=_NOMINATIM_SEARCH_URL, json=[], status_code=200)
+        async with httpx.AsyncClient() as client:
+            result = await nominatim_geocoder("zzz-does-not-exist", client)
         assert result == {}
 
 
 class TestGeocoder:
     """Tests for geocoder."""
 
-    @responses_lib.activate
-    def test_coordinate_string_input(self):
+    async def test_coordinate_string_input(self, httpx_mock):
         """Parses a lat,lon string and reverse geocodes without hitting Nominatim."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
-            json=PHOTON_RESPONSE,
-            status=200,
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=PHOTON_RESPONSE, status_code=200
         )
-        result = geocoder("51.5034,-0.1276")
-        assert result["geo"] == {"lat": 51.5034, "lon": -0.1276}
-        assert result["type"] == "Feature"
+        async with httpx.AsyncClient() as client:
+            result = await geocoder("51.5034,-0.1276", client)
+        assert result is not None
+        assert result.geo.lat == pytest.approx(51.5034, abs=1e-4)
+        assert result.geo.lon == pytest.approx(-0.1276, abs=1e-4)
+        assert result.address is not None
+        assert result.address.city == "London"
 
-    @responses_lib.activate
-    def test_place_name_input(self):
+    async def test_place_name_input(self, httpx_mock):
         """Geocodes a place name via Nominatim then enriches via Photon."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json=NOMINATIM_RESULT,
-            status=200,
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=NOMINATIM_RESULT, status_code=200
         )
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
-            json=PHOTON_RESPONSE,
-            status=200,
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=PHOTON_RESPONSE, status_code=200
         )
-        result = geocoder("10 Downing Street London")
-        assert result["geo"]["lat"] == pytest.approx(51.5034, abs=1e-4)
-        assert result["geo"]["lon"] == pytest.approx(-0.1276, abs=1e-4)
+        async with httpx.AsyncClient() as client:
+            result = await geocoder("10 Downing Street London", client)
+        assert result is not None
+        assert result.geo.lat == pytest.approx(51.5034, abs=1e-4)
+        assert result.geo.lon == pytest.approx(-0.1276, abs=1e-4)
+        assert result.address is not None
+        assert result.address.name == "10 Downing Street"
 
-    @responses_lib.activate
-    def test_invalid_coords_fall_through_to_nominatim(self):
+    async def test_invalid_coords_fall_through_to_nominatim(self, httpx_mock):
         """Out-of-range coordinates are treated as a place-name query."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json=NOMINATIM_RESULT,
-            status=200,
+        httpx_mock.add_response(
+            url=_NOMINATIM_SEARCH_URL, json=NOMINATIM_RESULT, status_code=200
         )
-        responses_lib.add(
-            responses_lib.GET,
-            f"{PHOTON_API}/reverse",
-            json=PHOTON_RESPONSE,
-            status=200,
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=PHOTON_RESPONSE, status_code=200
         )
-        # lat=999 is out of range - should fall through to Nominatim
-        result = geocoder("999,-0.1276")
-        assert "geo" in result
+        async with httpx.AsyncClient() as client:
+            result = await geocoder("999,-0.1276", client)
+        assert result is not None
+        assert result.geo is not None
 
-    @responses_lib.activate
-    def test_empty_nominatim_result_returns_empty(self):
-        """Returns empty dict when Nominatim finds no matching location."""
-        responses_lib.add(
-            responses_lib.GET,
-            f"{NOMINATIM_URL}/search",
-            json=[],
-            status=200,
+    async def test_empty_nominatim_result_returns_none(self, httpx_mock):
+        """Returns None when Nominatim finds no matching location."""
+        httpx_mock.add_response(url=_NOMINATIM_SEARCH_URL, json=[], status_code=200)
+        async with httpx.AsyncClient() as client:
+            result = await geocoder("zzz-does-not-exist", client)
+        assert result is None
+
+    async def test_raw_field_preserved(self, httpx_mock):
+        """The raw Photon feature is preserved in result.raw."""
+        httpx_mock.add_response(
+            url=_PHOTON_REVERSE_URL, json=PHOTON_RESPONSE, status_code=200
         )
-        result = geocoder("zzz-does-not-exist")
-        assert result == {}
+        async with httpx.AsyncClient() as client:
+            result = await geocoder("51.5034,-0.1276", client)
+        assert result is not None
+        assert result.raw == PHOTON_FEATURE

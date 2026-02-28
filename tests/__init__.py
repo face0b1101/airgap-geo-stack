@@ -1,1 +1,1 @@
-"""Test suite for airgap_geocoding."""
+"""Test suite for airgap_geo."""

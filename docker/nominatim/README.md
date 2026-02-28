@@ -5,18 +5,20 @@ latitude/longitude coordinates.
 
 - **Image**: `mediagis/nominatim:5.2`
 - **Port**: `8080`
-- **Data import**: Great Britain OSM PBF + GB postcode dataset
+- **Data import**: OSM PBF extract (controlled by `PBF_REGION`) + GB postcode dataset
 
 ## Usage
 
 ```bash
 cd docker/nominatim
-docker compose up -d
+docker compose --env-file ../../.env up -d
 ```
 
 ## Data preparation
 
-Download the Great Britain OSM extract before first start:
+Download the OSM extract for your chosen region before first start. Set `PBF_REGION`
+in your `.env` file (browse [https://download.geofabrik.de](https://download.geofabrik.de)
+for available regions), then run `make prepare` from the project root, or download manually:
 
 ```bash
 wget -P ./data https://download.geofabrik.de/europe/great-britain-latest.osm.pbf
