@@ -1,0 +1,197 @@
+# Air-Gap Geocoding Stack - Docker Deployment Guide
+
+This directory contains three independent Docker Compose stacks that together
+provide fully self-contained geocoding, reverse geocoding, routing, and UK postcode
+lookup with no runtime internet dependency.
+
+______________________________________________________________________
+
+## Services
+
+| Service              | Stack        | Port     | Purpose                                                    |
+| -------------------- | ------------ | -------- | ---------------------------------------------------------- |
+| **Nominatim**        | `nominatim/` | `8080`   | Forward geocoding - place/postcode → lat/lon               |
+| **Photon**           | `photon/`    | `2322`   | Reverse geocoding - lat/lon → OSM address                  |
+| **OSRM driving**     | `osrm/`      | internal | Car route calculation                                      |
+| **OSRM walking**     | `osrm/`      | internal | Foot route calculation                                     |
+| **OSRM cycling**     | `osrm/`      | internal | Bike route calculation                                     |
+| **HAProxy**          | `osrm/`      | `80`     | Routes `/route/v1/{profile}` and `/postcodes`, `/outcodes` |
+| **OSRM frontend**    | `osrm/`      | `9966`   | Visual route planner UI                                    |
+| **postcodes.io API** | `osrm/`      | internal | UK postcode/outcode lookup                                 |
+| **postcodes.io DB**  | `osrm/`      | internal | PostgreSQL backing store                                   |
+
+______________________________________________________________________
+
+## Quick Start
+
+**Before starting the stack**, download and process the required data (see
+[Data Preparation](#data-preparation) below, or run `make prepare` from the
+project root).
+
+### Option A — combined stack (all services at once)
+
+Run everything from the `docker/` directory:
+
+```bash
+cd docker && docker compose --env-file ../.env up -d
+```
+
+### Option B — individual sub-stacks
+
+Each sub-stack is also independently usable from its own directory:
+
+```bash
+# Nominatim (forward geocoding)
+cd nominatim && docker compose up -d
+
+# Photon (reverse geocoding)
+cd photon && docker compose up -d
+
+# OSRM + HAProxy + postcodes.io
+cd osrm && docker compose --env-file ../../.env up -d
+```
+
+______________________________________________________________________
+
+## Data Preparation
+
+Run the preparation script from the project root before starting any service:
+
+```bash
+make prepare                       # download and process all services
+make prepare ARGS="--cleanup"      # remove PBF copies from OSRM dirs after processing
+make prepare ARGS="--skip-photon"  # skip the ~60 GB Photon download
+```
+
+Or run the script directly:
+
+```bash
+cd docker
+./prepare-data.sh [--cleanup] [--skip-nominatim] [--skip-osrm] [--skip-photon]
+```
+
+| Service          | What it needs                                                                                          | Approx. size               |
+| ---------------- | ------------------------------------------------------------------------------------------------------ | -------------------------- |
+| **Nominatim**    | `great-britain-latest.osm.pbf` in `nominatim/data/`; import runs on first `docker compose up` (2–6 hr) | ~1.2 GB                    |
+| **OSRM**         | Pre-processed graph files in `osrm/data/{car,foot,bike}/`                                              | ~1.2 GB + ~10 GB processed |
+| **Photon**       | European dataset downloaded into `photon-data/`                                                        | ~60 GB                     |
+| **postcodes.io** | None — data is pre-loaded in the DB image                                                              | —                          |
+
+______________________________________________________________________
+
+## Application Configuration
+
+Set the following variables in the project root `.env` file:
+
+| Variable        | Local value             | Description                                                                                |
+| --------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| `PHOTON_API`    | `http://localhost:2322` | Photon reverse geocoding                                                                   |
+| `NOMINATIM_URL` | `http://localhost:8080` | Nominatim geocoding                                                                        |
+| `OSRM_API`      | `http://localhost:80`   | OSRM routing via HAProxy                                                                   |
+| `POSTCODES_URL` | `http://localhost:8000` | postcodes.io - or use `http://localhost:80` to route via HAProxy                           |
+| `OSRM_DATA`     | `./osrm/data`           | Path containing `car/`, `foot/`, `bike/` pre-processed OSRM graphs (relative to `docker/`) |
+
+______________________________________________________________________
+
+## Air-Gap Deployment
+
+### 1. Save standard Docker images
+
+On a connected machine, pull and save each image:
+
+```bash
+IMAGES=(
+  "mediagis/nominatim:5.2"
+  "osrm/osrm-backend"
+  "osrm/osrm-frontend:latest"
+  "haproxy"
+  "idealpostcodes/postcodes.io:latest"
+  "idealpostcodes/postcodes.io.db:latest"
+)
+
+for IMAGE in "${IMAGES[@]}"; do
+  FILENAME=$(echo "${IMAGE}" | tr '/:' '_').tar
+  docker pull "${IMAGE}"
+  docker save "${IMAGE}" -o "${FILENAME}"
+done
+```
+
+### 2. Photon - special case (large dataset)
+
+Photon requires a ~60 GB dataset. Download it on a connected machine and bake it
+into a custom image so it can be transferred as a single archive.
+
+```bash
+# a. Pull the image and let it download the European dataset
+docker run --rm \
+  -e REGION=europe \
+  -e INITIAL_DOWNLOAD=TRUE \
+  -v $(pwd)/photon-data:/photon/data \
+  rtuszik/photon-docker:latest
+
+# b. Create Dockerfile.airgap (not committed to version control)
+cat > Dockerfile.airgap <<'EOF'
+FROM rtuszik/photon-docker:latest
+COPY ./photon-data /photon/data
+ENV INITIAL_DOWNLOAD=FALSE
+ENV UPDATE_STRATEGY=DISABLED
+EOF
+
+# c. Build the custom image
+docker build -t photon-europe-airgap:latest -f Dockerfile.airgap .
+
+# d. Save the image
+docker save photon-europe-airgap:latest -o photon-europe-airgap.tar
+```
+
+On the air-gapped host, update `docker/photon/docker-compose.yml` to reference
+`photon-europe-airgap:latest` instead of `rtuszik/photon-docker:latest`.
+
+### 3. Download OSM PBF data for Nominatim and OSRM
+
+```bash
+wget https://download.geofabrik.de/europe/great-britain-latest.osm.pbf
+```
+
+Copy the `.pbf` file to `docker/nominatim/data/` for Nominatim.
+
+For OSRM, pre-process the file for each profile (see
+[`osrm/README.md`](osrm/README.md) for the full extract/partition/customise
+commands).
+
+### 4. Transfer files to the air-gapped host
+
+Transfer via USB drive, secure file copy, or your organisation's approved method:
+
+- All `.tar` image archives
+- `docker/nominatim/data/great-britain-latest.osm.pbf`
+- Pre-processed OSRM graph directories (`car/`, `foot/`, `bike/`)
+- This repository (or just the `docker/` tree + `.env`)
+
+### 5. Load images on the air-gapped host
+
+```bash
+for TAR in *.tar; do
+  docker load -i "${TAR}"
+done
+```
+
+### 6. Start the services
+
+```bash
+# Combined (recommended)
+cd docker && docker compose --env-file ../.env up -d
+
+# Or start each sub-stack individually
+cd docker/nominatim && docker compose up -d
+cd docker/photon    && docker compose up -d
+cd docker/osrm      && docker compose --env-file ../../.env up -d
+```
+
+______________________________________________________________________
+
+## Sub-stack READMEs
+
+- [`nominatim/README.md`](nominatim/README.md)
+- [`photon/README.md`](photon/README.md)
+- [`osrm/README.md`](osrm/README.md)

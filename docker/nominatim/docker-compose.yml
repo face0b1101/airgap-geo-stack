@@ -1,0 +1,22 @@
+services:
+  nominatim:
+    image: mediagis/nominatim:5.2
+    container_name: nominatim
+    restart: unless-stopped
+    shm_size: 1g
+    environment:
+      - PBF_PATH=/nominatim/data/great-britain-latest.osm.pbf
+      - IMPORT_GB_POSTCODES=true
+      - IMPORT_STYLE=full
+      - NOMINATIM_PASSWORD=nominatim
+      - FREEZE=true
+    volumes:
+      - nominatim-data:/var/lib/postgresql/16/main
+      - nominatim-flatnode:/nominatim/flatnode
+      - ./data:/nominatim/data
+    ports:
+      - "8080:8080"
+
+volumes:
+  nominatim-data:
+  nominatim-flatnode:

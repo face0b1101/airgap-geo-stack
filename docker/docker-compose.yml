@@ -1,0 +1,134 @@
+# Combined stack - runs Nominatim, Photon, OSRM (+ HAProxy + postcodes.io) together.
+# Requires OSRM_DATA to be set (e.g. via project root .env):
+#   docker compose --env-file ../.env up -d
+#
+# Individual sub-stacks in nominatim/, photon/ and osrm/ remain usable independently.
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Nominatim - forward geocoding (place/postcode → lat/lon)
+  # ---------------------------------------------------------------------------
+  nominatim:
+    image: mediagis/nominatim:5.2
+    container_name: nominatim
+    restart: unless-stopped
+    shm_size: 1g
+    environment:
+      - PBF_PATH=/nominatim/data/great-britain-latest.osm.pbf
+      - IMPORT_GB_POSTCODES=true
+      - IMPORT_STYLE=full
+      - NOMINATIM_PASSWORD=nominatim
+      - FREEZE=true
+    volumes:
+      - nominatim-data:/var/lib/postgresql/16/main
+      - nominatim-flatnode:/nominatim/flatnode
+      - ./nominatim/data:/nominatim/data
+    ports:
+      - "8080:8080"
+
+  # ---------------------------------------------------------------------------
+  # Photon - reverse geocoding (lat/lon → OSM address)
+  # ---------------------------------------------------------------------------
+  photon:
+    image: rtuszik/photon-docker:latest
+    container_name: photon
+    restart: unless-stopped
+    environment:
+      - REGION=europe
+      - UPDATE_STRATEGY=DISABLED
+      - INITIAL_DOWNLOAD=FALSE
+      - UPDATE_INTERVAL=720h
+    volumes:
+      - photon-data:/photon/data
+    ports:
+      - "2322:2322"
+
+  # ---------------------------------------------------------------------------
+  # OSRM routing backends (driving / walking / cycling)
+  # ---------------------------------------------------------------------------
+  osrm-backend-driving:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-driving
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/car:/data:ro
+    expose:
+      - "5000"
+
+  osrm-backend-walking:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-walking
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/foot:/data:ro
+    expose:
+      - "5000"
+
+  osrm-backend-cycling:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-cycling
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/bike:/data:ro
+    expose:
+      - "5000"
+
+  # ---------------------------------------------------------------------------
+  # HAProxy - routes /route/v1/{driving|walking|cycling}, /postcodes, /outcodes
+  # ---------------------------------------------------------------------------
+  haproxy:
+    image: haproxy
+    container_name: osrm-haproxy
+    restart: unless-stopped
+    volumes:
+      - ./osrm/haproxy/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - osrm-backend-driving
+      - osrm-backend-walking
+      - osrm-backend-cycling
+      - postcodes-api
+
+  # ---------------------------------------------------------------------------
+  # OSRM frontend - visual route planner UI
+  # ---------------------------------------------------------------------------
+  osrm-frontend:
+    image: osrm/osrm-frontend:latest
+    container_name: osrm-frontend
+    restart: unless-stopped
+    ports:
+      - "9966:9966"
+    environment:
+      - OSRM_BACKEND=http://localhost:80
+
+  # ---------------------------------------------------------------------------
+  # postcodes.io - UK postcode / outcode lookup
+  # ---------------------------------------------------------------------------
+  postcodes-db:
+    image: idealpostcodes/postcodes.io.db:latest
+    container_name: postcodes-db
+    restart: unless-stopped
+
+  postcodes-api:
+    image: idealpostcodes/postcodes.io:latest
+    container_name: postcodes-api
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DATABASE=postcodes
+      - POSTGRES_USER=postcodesio
+      - POSTGRES_PASSWORD=postcodesio
+      - POSTGRES_HOST=postcodes-db
+    expose:
+      - "8000"
+    depends_on:
+      - postcodes-db
+
+volumes:
+  nominatim-data:
+  nominatim-flatnode:
+  photon-data:

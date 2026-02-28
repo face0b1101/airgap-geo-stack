@@ -1,0 +1,72 @@
+services:
+  osrm-backend-driving:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-driving
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/car:/data:ro
+    expose:
+      - "5000"
+
+  osrm-backend-walking:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-walking
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/foot:/data:ro
+    expose:
+      - "5000"
+
+  osrm-backend-cycling:
+    image: osrm/osrm-backend
+    container_name: osrm-backend-cycling
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/great-britain-latest.osrm
+    volumes:
+      - ${OSRM_DATA}/bike:/data:ro
+    expose:
+      - "5000"
+
+  haproxy:
+    image: haproxy
+    container_name: osrm-haproxy
+    restart: unless-stopped
+    volumes:
+      - ./haproxy/config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - osrm-backend-driving
+      - osrm-backend-walking
+      - osrm-backend-cycling
+      - postcodes-api
+
+  osrm-frontend:
+    image: osrm/osrm-frontend:latest
+    container_name: osrm-frontend
+    restart: unless-stopped
+    ports:
+      - "9966:9966"
+    environment:
+      - OSRM_BACKEND=http://localhost:80
+
+  postcodes-db:
+    image: idealpostcodes/postcodes.io.db:latest
+    container_name: postcodes-db
+    restart: unless-stopped
+
+  postcodes-api:
+    image: idealpostcodes/postcodes.io:latest
+    container_name: postcodes-api
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DATABASE=postcodes
+      - POSTGRES_USER=postcodesio
+      - POSTGRES_PASSWORD=postcodesio
+      - POSTGRES_HOST=postcodes-db
+    expose:
+      - "8000"
+    depends_on:
+      - postcodes-db
