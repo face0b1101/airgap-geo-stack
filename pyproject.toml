@@ -1,6 +1,6 @@
 [project]
 name = "airgap-geo-stack"
-version = "1.0.0"
+version = "1.1.0"
 description = "Self-contained Python library and Docker Compose stack for fully air-gapped geocoding, reverse geocoding, routing, and UK postcode lookup"
 readme = "README.md"
 authors = [
@@ -29,6 +29,7 @@ Changelog = "https://github.com/face0b1101/airgap-geo-stack/blob/main/CHANGELOG.
 
 [project.scripts]
 serve = "airgap_geo_api.app:create_app"
+"prepare-data" = "airgap_geo.cli.prepare_data:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/airgap_geo", "src/airgap_geo_api"]
@@ -81,8 +82,13 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "pytest-httpx>=0.35.0",
     "ruff>=0.6.8",
+    "typer>=0.15.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "-m 'not live'"
+markers = [
+    "live: requires running Docker backend services",
+]

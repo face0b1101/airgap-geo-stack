@@ -1,8 +1,13 @@
-# Combined stack - runs Nominatim, Photon, OSRM (+ HAProxy + postcodes.io) together.
-# Requires OSRM_DATA to be set (e.g. via project root .env):
-#   docker compose --env-file ../.env up -d
+# Airgap Geocoding Stack — single compose file for all services.
 #
-# Individual sub-stacks in nominatim/, photon/ and osrm/ remain usable independently.
+# Usage (from the project root):
+#   make up                   # all services
+#   make geocoding-up         # Nominatim + Photon
+#   make nominatim-up         # Nominatim only
+#   make routing-up           # OSRM + HAProxy + postcodes.io
+#
+# Or with docker compose directly:
+#   docker compose -f docker/docker-compose.yml --env-file .env --profile all up -d
 
 services:
 
@@ -10,6 +15,7 @@ services:
   # Nominatim - forward geocoding (place/postcode → lat/lon)
   # ---------------------------------------------------------------------------
   nominatim:
+    profiles: [geocoding, nominatim, all]
     image: mediagis/nominatim:5.2
     container_name: nominatim
     restart: unless-stopped
@@ -31,6 +37,7 @@ services:
   # Photon - reverse geocoding (lat/lon → OSM address)
   # ---------------------------------------------------------------------------
   photon:
+    profiles: [geocoding, photon, all]
     image: rtuszik/photon-docker:latest
     container_name: photon
     restart: unless-stopped
@@ -48,6 +55,7 @@ services:
   # OSRM routing backends (driving / walking / cycling)
   # ---------------------------------------------------------------------------
   osrm-backend-driving:
+    profiles: [routing, osrm, all]
     image: ${OSRM_IMAGE:-osrm/osrm-backend}
     platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-driving
@@ -59,6 +67,7 @@ services:
       - "5000"
 
   osrm-backend-walking:
+    profiles: [routing, osrm, all]
     image: ${OSRM_IMAGE:-osrm/osrm-backend}
     platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-walking
@@ -70,6 +79,7 @@ services:
       - "5000"
 
   osrm-backend-cycling:
+    profiles: [routing, osrm, all]
     image: ${OSRM_IMAGE:-osrm/osrm-backend}
     platform: ${OSRM_PLATFORM:-linux/amd64}
     container_name: osrm-backend-cycling
@@ -84,6 +94,7 @@ services:
   # HAProxy - routes /route/v1/{driving|walking|cycling}, /postcodes, /outcodes
   # ---------------------------------------------------------------------------
   haproxy:
+    profiles: [routing, osrm, all]
     image: haproxy
     container_name: osrm-haproxy
     restart: unless-stopped
@@ -95,12 +106,12 @@ services:
       - osrm-backend-driving
       - osrm-backend-walking
       - osrm-backend-cycling
-      - postcodes-api
 
   # ---------------------------------------------------------------------------
   # OSRM frontend - visual route planner UI
   # ---------------------------------------------------------------------------
   osrm-frontend:
+    profiles: [routing, osrm, all]
     image: osrm/osrm-frontend:latest
     platform: linux/amd64
     container_name: osrm-frontend
@@ -114,12 +125,17 @@ services:
   # postcodes.io - UK postcode / outcode lookup
   # ---------------------------------------------------------------------------
   postcodes-db:
+    profiles: [routing, postcodes, all]
     image: idealpostcodes/postcodes.io.db:latest
     platform: linux/amd64
     container_name: postcodes-db
     restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postcodesio
+      - POSTGRES_PASSWORD=postcodesio
 
   postcodes-api:
+    profiles: [routing, postcodes, all]
     image: idealpostcodes/postcodes.io:latest
     platform: linux/amd64
     container_name: postcodes-api
@@ -138,6 +154,7 @@ services:
   # Airgap Geocoding API - unified FastAPI service (port 5000)
   # ---------------------------------------------------------------------------
   api:
+    profiles: [api, all]
     build:
       context: ..
       dockerfile: docker/api/Dockerfile
@@ -152,10 +169,6 @@ services:
       - POSTCODES_URL=http://haproxy:80
       - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-3600}
       - CACHE_MAX_SIZE=${CACHE_MAX_SIZE:-1024}
-    depends_on:
-      - nominatim
-      - photon
-      - haproxy
 
 volumes:
   nominatim-data:

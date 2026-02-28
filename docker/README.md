@@ -1,24 +1,24 @@
 # Air-Gap Geocoding Stack - Docker Deployment Guide
 
-This directory contains three independent Docker Compose stacks that together
-provide fully self-contained geocoding, reverse geocoding, routing, and UK postcode
-lookup with no runtime internet dependency.
+A single `docker-compose.yml` manages all services. Docker Compose **profiles**
+let you start only what you need.
 
 ______________________________________________________________________
 
 ## Services
 
-| Service              | Stack        | Port     | Purpose                                                    |
-| -------------------- | ------------ | -------- | ---------------------------------------------------------- |
-| **Nominatim**        | `nominatim/` | `8080`   | Forward geocoding - place/postcode → lat/lon               |
-| **Photon**           | `photon/`    | `2322`   | Reverse geocoding - lat/lon → OSM address                  |
-| **OSRM driving**     | `osrm/`      | internal | Car route calculation                                      |
-| **OSRM walking**     | `osrm/`      | internal | Foot route calculation                                     |
-| **OSRM cycling**     | `osrm/`      | internal | Bike route calculation                                     |
-| **HAProxy**          | `osrm/`      | `80`     | Routes `/route/v1/{profile}` and `/postcodes`, `/outcodes` |
-| **OSRM frontend**    | `osrm/`      | `9966`   | Visual route planner UI                                    |
-| **postcodes.io API** | `osrm/`      | internal | UK postcode/outcode lookup                                 |
-| **postcodes.io DB**  | `osrm/`      | internal | PostgreSQL backing store                                   |
+| Service              | Profile(s)           | Port     | Purpose                                                    |
+| -------------------- | -------------------- | -------- | ---------------------------------------------------------- |
+| **Nominatim**        | geocoding, nominatim | `8080`   | Forward geocoding - place/postcode → lat/lon               |
+| **Photon**           | geocoding, photon    | `2322`   | Reverse geocoding - lat/lon → OSM address                  |
+| **OSRM driving**     | routing, osrm        | internal | Car route calculation                                      |
+| **OSRM walking**     | routing, osrm        | internal | Foot route calculation                                     |
+| **OSRM cycling**     | routing, osrm        | internal | Bike route calculation                                     |
+| **HAProxy**          | routing, osrm        | `80`     | Routes `/route/v1/{profile}` and `/postcodes`, `/outcodes` |
+| **OSRM frontend**    | routing, osrm        | `9966`   | Visual route planner UI                                    |
+| **postcodes.io API** | routing, postcodes   | internal | UK postcode/outcode lookup                                 |
+| **postcodes.io DB**  | routing, postcodes   | internal | PostgreSQL backing store                                   |
+| **Airgap API**       | api                  | `5000`   | Unified FastAPI service                                    |
 
 ______________________________________________________________________
 
@@ -28,34 +28,33 @@ ______________________________________________________________________
 [Data Preparation](#data-preparation) below, or run `make prepare` from the
 project root).
 
-### Option A — combined stack (all services at once)
-
-Run everything from the `docker/` directory:
+All commands run from the **project root**:
 
 ```bash
-cd docker && docker compose --env-file ../.env up -d
+make up               # start everything
+make geocoding-up     # Nominatim + Photon only
+make nominatim-up     # Nominatim only
+make routing-up       # OSRM + HAProxy + postcodes.io
+make osrm-up          # OSRM + HAProxy (no postcodes)
+make postcodes-up     # postcodes.io only
+make api-up           # FastAPI service only
+make down             # stop all services
+make ps               # show running containers
+make nominatim-logs   # tail logs for a service
 ```
 
-### Option B — individual sub-stacks
-
-Each sub-stack is also independently usable from its own directory:
+Or with `docker compose` directly:
 
 ```bash
-# Nominatim (forward geocoding)
-cd nominatim && docker compose up -d
-
-# Photon (reverse geocoding)
-cd photon && docker compose up -d
-
-# OSRM + HAProxy + postcodes.io
-cd osrm && docker compose --env-file ../../.env up -d
+docker compose -f docker/docker-compose.yml --env-file .env --profile all up -d
+docker compose -f docker/docker-compose.yml --env-file .env --profile nominatim up -d
 ```
 
 ______________________________________________________________________
 
 ## Data Preparation
 
-Run the preparation script from the project root before starting any service:
+Run the preparation CLI from the project root before starting any service:
 
 ```bash
 make prepare                       # download and process all services
@@ -63,11 +62,11 @@ make prepare ARGS="--cleanup"      # remove PBF copies from OSRM dirs after proc
 make prepare ARGS="--skip-photon"  # skip the ~60 GB Photon download
 ```
 
-Or run the script directly:
+Or run the CLI directly:
 
 ```bash
-cd docker
-./prepare-data.sh [--cleanup] [--skip-nominatim] [--skip-osrm] [--skip-photon]
+uv run prepare-data --help
+uv run prepare-data --cleanup --skip-photon
 ```
 
 | Service          | What it needs                                                                                          | Approx. size               |
@@ -89,7 +88,7 @@ Set the following variables in the project root `.env` file:
 | `NOMINATIM_URL` | `http://localhost:8080` | Nominatim geocoding                                                                        |
 | `OSRM_API`      | `http://localhost:80`   | OSRM routing via HAProxy                                                                   |
 | `POSTCODES_URL` | `http://localhost:8000` | postcodes.io - or use `http://localhost:80` to route via HAProxy                           |
-| `OSRM_DATA`     | `./osrm/data`           | Path containing `car/`, `foot/`, `bike/` pre-processed OSRM graphs (relative to `docker/`) |
+| `OSRM_DATA`     | `./osrm/data`           | `car/`, `foot/`, `bike/` OSRM graph dirs (relative to `docker/`)                           |
 | `OSRM_IMAGE`    | `osrm/osrm-backend`     | OSRM Docker image — override with a locally-built ARM64 image on Apple Silicon             |
 | `OSRM_PLATFORM` | `linux/amd64`           | Target platform for OSRM image — set to `linux/arm64` when using a native ARM64 build      |
 | `PBF_URL`       | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de)            |
@@ -177,13 +176,13 @@ docker build -t photon-europe-airgap:latest -f Dockerfile.airgap .
 docker save photon-europe-airgap:latest -o photon-europe-airgap.tar
 ```
 
-On the air-gapped host, update `docker/photon/docker-compose.yml` to reference
-`photon-europe-airgap:latest` instead of `rtuszik/photon-docker:latest`.
+On the air-gapped host, update the `photon` service image in
+`docker/docker-compose.yml` to `photon-europe-airgap:latest`.
 
 ### 3. Download OSM PBF data for Nominatim and OSRM
 
 Set `PBF_URL` and `PBF_REGION` in your `.env` file for the desired region, then run
-`make prepare` (or `docker/prepare-data.sh`). To download manually:
+`make prepare` (or `uv run prepare-data`). To download manually:
 
 ```bash
 wget https://download.geofabrik.de/europe/great-britain-latest.osm.pbf
@@ -218,19 +217,7 @@ done
 ### 6. Start the services
 
 ```bash
-# Combined (recommended)
-cd docker && docker compose --env-file ../.env up -d
-
-# Or start each sub-stack individually
-cd docker/nominatim && docker compose up -d
-cd docker/photon    && docker compose up -d
-cd docker/osrm      && docker compose --env-file ../../.env up -d
+make up               # all services
+make geocoding-up     # Nominatim + Photon only
+make routing-up       # OSRM + HAProxy + postcodes.io
 ```
-
-______________________________________________________________________
-
-## Sub-stack READMEs
-
-- [`nominatim/README.md`](nominatim/README.md)
-- [`photon/README.md`](photon/README.md)
-- [`osrm/README.md`](osrm/README.md)
