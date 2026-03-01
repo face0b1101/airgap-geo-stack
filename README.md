@@ -60,7 +60,7 @@ ______________________________________________________________________
 | **HAProxy**          | `haproxy`                               | `80`     | Reverse proxy for OSRM profiles and postcodes.io          |
 | **postcodes.io API** | `idealpostcodes/postcodes.io:latest`    | `8000`   | UK postcode lookup                                        |
 | **postcodes.io DB**  | `idealpostcodes/postcodes.io.db:latest` | internal | PostgreSQL backing store                                  |
-| **Airgap API**       | *(built locally)*                       | `5000`   | Unified FastAPI service exposing all four services        |
+| **Airgap API**       | *(built locally)*                       | `5050`   | Unified FastAPI service exposing all four services        |
 
 See [`docker/README.md`](docker/README.md) for full deployment and air-gap transfer instructions.
 
@@ -169,10 +169,10 @@ An HTTP API layer wraps the Python library, exposing all four services over a si
 ### Running locally
 
 ```bash
-make serve          # starts uvicorn on http://localhost:5000 with --reload
+make serve          # starts uvicorn on http://localhost:5050 with --reload
 ```
 
-Interactive docs are available at `http://localhost:5000/docs` (Swagger UI) and `http://localhost:5000/redoc`.
+Interactive docs are available at `http://localhost:5050/docs` (Swagger UI) and `http://localhost:5050/redoc`.
 
 ### Running via Docker Compose
 
@@ -237,7 +237,7 @@ Mixed input (coordinate origin, text destination) is also supported:
 #### Example — route by name with `curl`
 
 ```bash
-curl -s -X POST http://localhost:5000/route \
+curl -s -X POST http://localhost:5050/route \
   -H 'Content-Type: application/json' \
   -d '{"origin": "Westminster", "destination": "Birmingham", "profile": "driving"}'
 ```
@@ -263,7 +263,7 @@ any text-based inputs:
 Coordinate origin with a text destination and a text waypoint:
 
 ```bash
-curl -s -X POST http://localhost:5000/route \
+curl -s -X POST http://localhost:5050/route \
   -H 'Content-Type: application/json' \
   -d '{
     "origin":      { "lat": 51.5034, "lon": -0.1276 },
@@ -292,7 +292,7 @@ return `null`:
 To also reverse-geocode the coordinate origin, set `resolve_addresses`:
 
 ```bash
-curl -s -X POST http://localhost:5000/route \
+curl -s -X POST http://localhost:5050/route \
   -H 'Content-Type: application/json' \
   -d '{
     "origin":             { "lat": 51.5034, "lon": -0.1276 },
@@ -425,7 +425,7 @@ cp .env.example .env
 | `NOMINATIM_URL`     | `http://localhost:8080` | Nominatim geocoding service                                                     |
 | `OSRM_API`          | `http://localhost:80`   | OSRM routing API (via HAProxy)                                                  |
 | `POSTCODES_URL`     | `http://localhost:8000` | postcodes.io API                                                                |
-| `API_PORT`          | `5000`                  | Port the FastAPI service listens on                                             |
+| `API_PORT`          | `5050`                  | Port the FastAPI service listens on                                             |
 | `CACHE_TTL_SECONDS` | `3600`                  | Cache entry TTL in seconds                                                      |
 | `CACHE_MAX_SIZE`    | `1024`                  | Max entries per cache domain                                                    |
 | `PBF_URL`           | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de) |

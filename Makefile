@@ -35,7 +35,7 @@ prepare:
 	uv run prepare-data $(ARGS)
 
 serve:
-	uv run uvicorn airgap_geo_api.app:create_app --factory --reload --port 5000
+	uv run uvicorn airgap_geo_api.app:create_app --factory --reload --port 5050
 
 osrm-build:  ## Build OSRM from source using OSRM_IMAGE / OSRM_PLATFORM from .env
 	docker/build-osrm.sh --platform $(OSRM_PLATFORM) --tag $(OSRM_IMAGE)

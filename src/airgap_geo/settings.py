@@ -8,7 +8,7 @@ OSRM_API: str = config("OSRM_API", default="http://localhost:80")
 POSTCODES_URL: str = config("POSTCODES_URL", default="http://localhost:8000")
 
 # API server
-API_PORT: int = config("API_PORT", default=5000, cast=int)
+API_PORT: int = config("API_PORT", default=5050, cast=int)
 
 # Cache
 CACHE_TTL_SECONDS: int = config("CACHE_TTL_SECONDS", default=3600, cast=int)
