@@ -1,4 +1,4 @@
-.PHONY: install lint format test test-live test-all precommit run check prepare serve osrm-build up down ps
+.PHONY: install lint format test test-live test-all precommit run check prepare serve osrm-build up down ps status
 
 # Load .env so that FORCE_PLATFORM, OSRM_IMAGE, etc. are available to all
 # targets (including `make prepare` which shells out to uv/python).
@@ -47,6 +47,7 @@ osrm-build:  ## Build OSRM from source using OSRM_IMAGE / OSRM_PLATFORM from .en
 #   make up       — start all services
 #   make down     — stop all services
 #   make ps       — list containers
+#   make status   — check readiness of backend services
 #
 # Pattern rules (any profile name works):
 #   make <profile>-up    e.g. make nominatim-up, make geocoding-up
@@ -68,6 +69,36 @@ down:
 
 ps:
 	$(COMPOSE) ps -a
+
+define _STATUS_PY
+import httpx, time
+from airgap_geo.settings import API_PORT, NOMINATIM_URL, OSRM_API, PHOTON_API, POSTCODES_URL
+urls = {
+    'api':          f'http://localhost:{API_PORT}/health',
+    'nominatim':    NOMINATIM_URL + '/status.php',
+    'photon':       PHOTON_API + '/api?q=london&limit=1',
+    'osrm':         OSRM_API + '/route/v1/driving/-0.1276,51.5034;-0.1276,51.5034',
+    'postcodes_io': POSTCODES_URL + '/postcodes/SW1A2AA',
+}
+with httpx.Client() as c:
+    for name, url in urls.items():
+        t0 = time.monotonic()
+        try:
+            r = c.get(url, timeout=5.0)
+            ms = (time.monotonic() - t0) * 1000
+            ok = r.is_success
+            code = r.status_code
+        except Exception:
+            ms = (time.monotonic() - t0) * 1000
+            ok = False
+            code = 'ERR'
+        sym = '\033[32m✓\033[0m' if ok else '\033[31m✗\033[0m'
+        print(f'  {sym} {name:<14s} {code:<5}  ({ms:.0f} ms)')
+endef
+export _STATUS_PY
+
+status:  ## Check readiness of all backend services
+	@uv run python -c "$$_STATUS_PY"
 
 %-up:
 	$(COMPOSE) --profile $* up -d
