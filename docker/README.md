@@ -104,18 +104,18 @@ for `linux/amd64` only. Docker Desktop runs them under Rosetta 2 emulation,
 which works correctly but is slower than native.
 
 The OSRM backend is the most performance-sensitive service (CPU-heavy C++ routing
-engine), so a helper script is provided to build it natively for ARM64:
+engine), so a helper script is provided to build it from source for any platform:
 
 ```bash
-# One-time build (~30 min)
-./build-osrm-arm64.sh
+# Set the desired image and platform in .env, then:
+make osrm-build        # builds using OSRM_IMAGE / OSRM_PLATFORM from .env
 
-# Then add to your project root .env:
-OSRM_IMAGE=osrm-backend:arm64-local
-OSRM_PLATFORM=linux/arm64
+# Or invoke the script directly:
+./build-osrm.sh                          # linux/arm64 → osrm-backend:arm64-local
+./build-osrm.sh --platform linux/amd64   # linux/amd64 → osrm-backend:amd64-local
 ```
 
-After that, `make prepare` and `docker compose up` will use the native image.
+After that, `make prepare` and `make up` will use the built image.
 No changes are needed for the other amd64-only services — they run fine under
 Rosetta with negligible overhead.
 
@@ -129,12 +129,16 @@ ______________________________________________________________________
 
 ### 1. Save standard Docker images
 
-On a connected machine, pull and save each image:
+On a connected machine, pull and save each image. Source your `.env` first so
+that `OSRM_IMAGE` resolves to your locally-built tag (if any). When
+`FORCE_PLATFORM` is set the script pulls the correct architecture automatically.
 
 ```bash
+source .env 2>/dev/null || true
+
 IMAGES=(
   "mediagis/nominatim:5.2"
-  "osrm/osrm-backend"
+  "${OSRM_IMAGE:-osrm/osrm-backend}"
   "osrm/osrm-frontend:latest"
   "haproxy"
   "idealpostcodes/postcodes.io:latest"
@@ -143,7 +147,7 @@ IMAGES=(
 
 for IMAGE in "${IMAGES[@]}"; do
   FILENAME=$(echo "${IMAGE}" | tr '/:' '_').tar
-  docker pull "${IMAGE}"
+  docker pull ${FORCE_PLATFORM:+--platform "$FORCE_PLATFORM"} "${IMAGE}"
   docker save "${IMAGE}" -o "${FILENAME}"
 done
 ```
@@ -201,7 +205,7 @@ commands).
 
 Transfer via USB drive, secure file copy, or your organisation's approved method:
 
-- All `.tar` image archives
+- All `.tar` image archives (including the locally-built OSRM image if you ran `make osrm-build`)
 - `docker/nominatim/data/${PBF_REGION}-latest.osm.pbf`
 - Pre-processed OSRM graph directories (`car/`, `foot/`, `bike/`)
 - This repository (or just the `docker/` tree + `.env`)

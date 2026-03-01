@@ -8,15 +8,54 @@ All services are OSM-derived and run entirely within your own infrastructure.
 
 ______________________________________________________________________
 
+## Quick Start
+
+1. **Clone and install**
+
+```bash
+git clone https://github.com/face0b1101/airgap-geo-stack
+cd airgap-geo-stack
+make install
+```
+
+2. **Configure**
+
+```bash
+cp .env.example .env
+# Edit .env — set PBF_REGION / PBF_URL for your area
+```
+
+3. **Build OSRM from source** *(optional — only needed for ARM64 or v6.0.0)*
+
+```bash
+# Set OSRM_IMAGE and OSRM_PLATFORM in .env, then:
+make osrm-build
+```
+
+4. **Prepare data**
+
+```bash
+make prepare                          # all services
+make prepare ARGS="--skip-photon"     # skip the ~60 GB Photon download
+```
+
+5. **Start services**
+
+```bash
+make up
+```
+
+______________________________________________________________________
+
 ## Services
 
 | Service              | Image                                   | Port     | Role                                                      |
 | -------------------- | --------------------------------------- | -------- | --------------------------------------------------------- |
 | **Nominatim**        | `mediagis/nominatim:5.2`                | `8080`   | Forward geocoding - place name / postcode → lat/lon       |
 | **Photon**           | `rtuszik/photon-docker:latest`          | `2322`   | Reverse geocoding - lat/lon → rich OSM address properties |
-| **OSRM** (driving)   | `osrm/osrm-backend`                     | internal | Road routing, car profile                                 |
-| **OSRM** (walking)   | `osrm/osrm-backend`                     | internal | Road routing, foot profile                                |
-| **OSRM** (cycling)   | `osrm/osrm-backend`                     | internal | Road routing, bike profile                                |
+| **OSRM** (driving)   | `${OSRM_IMAGE}`                         | internal | Road routing, car profile                                 |
+| **OSRM** (walking)   | `${OSRM_IMAGE}`                         | internal | Road routing, foot profile                                |
+| **OSRM** (cycling)   | `${OSRM_IMAGE}`                         | internal | Road routing, bike profile                                |
 | **OSRM frontend**    | `osrm/osrm-frontend:latest`             | `9966`   | Visual route planner UI                                   |
 | **HAProxy**          | `haproxy`                               | `80`     | Reverse proxy for OSRM profiles and postcodes.io          |
 | **postcodes.io API** | `idealpostcodes/postcodes.io:latest`    | `8000`   | UK postcode lookup                                        |
@@ -86,11 +125,38 @@ make geocoding-up        # start Nominatim + Photon
 make routing-up          # start OSRM + postcodes.io
 make api-up              # start the FastAPI service
 
+make osrm-build          # build OSRM from source (uses OSRM_IMAGE / OSRM_PLATFORM from .env)
+
 make nominatim-logs      # tail Nominatim logs
 make routing-down        # stop routing services
 ```
 
 Any profile name works with `-up`, `-down`, and `-logs` suffixes.
+
+### Cross-platform builds (airgap export)
+
+To prepare images and data on one architecture (e.g. arm64) for
+deployment on another (e.g. x86_64), set `FORCE_PLATFORM` in `.env`:
+
+```bash
+# .env
+FORCE_PLATFORM=linux/amd64
+OSRM_IMAGE=osrm-backend:amd64-local
+OSRM_PLATFORM=linux/amd64
+```
+
+Then build and prepare:
+
+```bash
+make osrm-build          # builds OSRM v6 for linux/amd64
+make prepare             # processes data using the amd64 image
+make up                  # runs all services forced to linux/amd64
+```
+
+The upstream `osrm/osrm-backend` image on Docker Hub is v5.26.0 (amd64-only).
+If you build from source you get v6.0.0 — the data formats are incompatible,
+so the same image version must be used for both data preparation and runtime.
+`make osrm-build` ensures the built image tag matches `OSRM_IMAGE` in `.env`.
 
 See [`docker/README.md`](docker/README.md) for full deployment, configuration, and air-gap transfer instructions.
 
@@ -364,6 +430,10 @@ cp .env.example .env
 | `CACHE_MAX_SIZE`    | `1024`                  | Max entries per cache domain                                                    |
 | `PBF_URL`           | *(Great Britain URL)*   | Full Geofabrik download URL — see [geofabrik.de](https://download.geofabrik.de) |
 | `PBF_REGION`        | `great-britain`         | Region stem used in PBF/OSRM filenames (e.g. `germany`, `france`)               |
+| `OSRM_IMAGE`        | `osrm/osrm-backend`     | OSRM Docker image — set to a locally built tag for v6.0.0                       |
+| `OSRM_PLATFORM`     | `linux/amd64`           | Platform for OSRM containers during data preparation                            |
+| `OSRM_DATA`         | `./osrm/data`           | OSRM processed data directory (relative to `docker/`)                           |
+| `FORCE_PLATFORM`    | *(unset)*               | Force all Docker images to a specific platform (e.g. `linux/amd64` for export)  |
 
 ______________________________________________________________________
 

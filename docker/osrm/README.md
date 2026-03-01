@@ -86,17 +86,18 @@ The `osrm/osrm-backend` image is published for `linux/amd64` only. On Apple
 Silicon it runs under Rosetta 2 emulation, which is functional but slower —
 especially during the CPU-heavy extract/partition/customise steps above.
 
-To build a native ARM64 image:
+To build from source for any platform, set `OSRM_IMAGE` and `OSRM_PLATFORM` in
+your `.env` and run:
 
 ```bash
-../build-osrm-arm64.sh
+make osrm-build   # uses OSRM_IMAGE / OSRM_PLATFORM from .env
 ```
 
-Then add to your project root `.env`:
+Or invoke the script directly:
 
-```env
-OSRM_IMAGE=osrm-backend:arm64-local
-OSRM_PLATFORM=linux/arm64
+```bash
+../build-osrm.sh                          # linux/arm64 → osrm-backend:arm64-local
+../build-osrm.sh --platform linux/amd64   # linux/amd64 → osrm-backend:amd64-local
 ```
 
 The other amd64-only services in this stack (`osrm-frontend`, `postcodes.io`,

@@ -1,0 +1,42 @@
+# Platform override — forces every service to ${FORCE_PLATFORM}.
+#
+# Automatically included by the Makefile when FORCE_PLATFORM is set in .env.
+# Each service inherits its image from the base docker-compose.yml; this file
+# only constrains the platform.
+#
+# Manual usage:
+#   docker compose -f docker/docker-compose.yml \
+#                  -f docker/docker-compose.platform.yml \
+#                  --env-file .env --profile all up -d
+
+services:
+
+  nominatim:
+    platform: ${FORCE_PLATFORM}
+
+  photon:
+    platform: ${FORCE_PLATFORM}
+
+  osrm-backend-driving:
+    platform: ${FORCE_PLATFORM}
+
+  osrm-backend-walking:
+    platform: ${FORCE_PLATFORM}
+
+  osrm-backend-cycling:
+    platform: ${FORCE_PLATFORM}
+
+  haproxy:
+    platform: ${FORCE_PLATFORM}
+
+  osrm-frontend:
+    platform: ${FORCE_PLATFORM}
+
+  postcodes-db:
+    platform: ${FORCE_PLATFORM}
+
+  postcodes-api:
+    platform: ${FORCE_PLATFORM}
+
+  api:
+    platform: ${FORCE_PLATFORM}

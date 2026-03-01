@@ -87,15 +87,15 @@ ______________________________________________________________________
 - **Linter/formatter**: Ruff (configured in `pyproject.toml`)
 - **Tests**: pytest
 
-| Target           | Purpose                                  |
-| ---------------- | ---------------------------------------- |
-| `make install`   | Install/refresh dependencies (`uv sync`) |
-| `make lint`      | Run Ruff checks                          |
-| `make format`    | Apply Ruff formatting                    |
-| `make test`      | Execute pytest suite                     |
-| `make precommit` | Run all pre-commit hooks                 |
-| `make run`       | Run the sample `hello` entry point       |
-| `make check`     | Lint + test combined                     |
+| Target           | Purpose                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `make install`   | Install/refresh dependencies (`uv sync`)                                                   |
+| `make lint`      | Run Ruff checks                                                                            |
+| `make format`    | Apply Ruff formatting                                                                      |
+| `make test`      | Execute pytest suite                                                                       |
+| `make precommit` | Run all pre-commit hooks                                                                   |
+| `make run`       | Run the sample `hello` entry point                                                         |
+| `make check`     | Lint + test combined                                                                       |
 | `make prepare`   | Download and process data for all Docker services (`ARGS` forwarded to `prepare-data` CLI) |
 
 **Key conventions**:
@@ -136,6 +136,7 @@ Concise policy reference for all coding agents touching this repository. Keep re
 - For new files: `git restore --staged :/ && git add <paths> && git commit -m "<msg>" -- <paths>`.
 - Quote any paths containing brackets/parentheses when staging to avoid globbing.
 - Never amend existing commits unless the user instructs you to.
+- Don't plaster all commits and git issues with "Made with Cursor", "Cursor helped me with this", "AI did everything" or anything similar.
 
 ### 5. Pre-flight Checklist
 

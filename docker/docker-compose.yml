@@ -46,8 +46,10 @@ services:
       - UPDATE_STRATEGY=DISABLED
       - INITIAL_DOWNLOAD=FALSE
       - UPDATE_INTERVAL=720h
+      - PUID=501
+      - PGID=20
     volumes:
-      - photon-data:/photon/data
+      - ./photon-data:/photon/data
     ports:
       - "2322:2322"
 
@@ -141,12 +143,12 @@ services:
     container_name: postcodes-api
     restart: unless-stopped
     environment:
-      - POSTGRES_DATABASE=postcodes
+      - POSTGRES_DATABASE=postcodesio
       - POSTGRES_USER=postcodesio
       - POSTGRES_PASSWORD=postcodesio
       - POSTGRES_HOST=postcodes-db
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     depends_on:
       - postcodes-db
 
@@ -173,4 +175,3 @@ services:
 volumes:
   nominatim-data:
   nominatim-flatnode:
-  photon-data:

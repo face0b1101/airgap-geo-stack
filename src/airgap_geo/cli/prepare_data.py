@@ -10,15 +10,19 @@ https://download.geofabrik.de to find your extract.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Annotated
 
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape as rich_escape
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -44,10 +48,30 @@ DOCKER_DIR = Path(__file__).resolve().parents[3] / "docker"
 
 PROFILES = {"car": "car", "foot": "foot", "bike": "bicycle"}
 
+_TAIL_LINES = 20
+
+_OOM_EXIT_CODE = 137
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Format *seconds* as ``Xm Ys`` or ``Xs``."""
+    mins, secs = divmod(int(seconds), 60)
+    if mins:
+        return f"{mins}m {secs}s"
+    return f"{secs}s"
+
+
+def _dir_size(path: Path) -> int:
+    """Return total size in bytes of all files under *path*."""
+    try:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+    except OSError:
+        return 0
 
 
 def _check_docker() -> None:
@@ -75,10 +99,25 @@ def _run_docker(
     args: list[str],
     *,
     label: str,
-) -> None:
-    """Run a ``docker run`` command, streaming output with a spinner."""
+    verbose: bool = False,
+    allow_oom: bool = False,
+) -> int:
+    """Run a ``docker run`` command, streaming output with a spinner.
+
+    In *verbose* mode every line is printed directly.  Otherwise a Rich
+    spinner shows the latest line plus elapsed time.  On failure the last
+    captured output lines are printed alongside a copy-pasteable command.
+
+    Returns the process exit code.  When *allow_oom* is ``True`` and the
+    container is OOM-killed (exit 137), the error is printed but no
+    exception is raised — the caller can inspect the return value and retry.
+    """
     cmd = ["docker", "run", "--rm", *args]
-    with console.status(f"[bold cyan]{label}[/]") as status:
+    tail: deque[str] = deque(maxlen=_TAIL_LINES)
+    t0 = time.monotonic()
+
+    if verbose:
+        console.print(f"  [bold cyan]{label}[/]")
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -87,14 +126,42 @@ def _run_docker(
         )
         assert proc.stdout is not None
         for line in proc.stdout:
-            status.update(f"[bold cyan]{label}[/]  {line.rstrip()}")
+            stripped = line.rstrip()
+            tail.append(stripped)
+            console.print(f"    {rich_escape(stripped)}")
         returncode = proc.wait()
+    else:
+        with console.status(f"[bold cyan]{label}[/]") as status:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                stripped = line.rstrip()
+                tail.append(stripped)
+                elapsed = _fmt_elapsed(time.monotonic() - t0)
+                status.update(
+                    f"[bold cyan]{label}[/] [dim]({elapsed})[/]  "
+                    f"{rich_escape(stripped)}"
+                )
+            returncode = proc.wait()
 
     if returncode != 0:
         console.print(
-            f"[bold red]Command failed (exit {returncode}):[/] {' '.join(cmd)}"
+            f"[bold red]Command failed (exit {returncode}):[/]\n  {shlex.join(cmd)}"
         )
+        if tail:
+            console.print("[dim]Last output lines:[/]")
+            for ln in tail:
+                console.print(f"  {rich_escape(ln)}")
+        if allow_oom and returncode == _OOM_EXIT_CODE:
+            return returncode
         raise typer.Exit(code=returncode)
+
+    return returncode
 
 
 def _download_file(url: str, dest: Path) -> None:
@@ -155,7 +222,7 @@ class StepResult:
 
     Attributes:
         name: Human-readable step label.
-        status: One of ``pending``, ``completed``, or ``skipped``.
+        status: One of ``pending``, ``completed``, ``skipped``, or ``failed``.
         elapsed: Wall-clock seconds the step took.
     """
 
@@ -204,6 +271,7 @@ def _step_osrm_profile(
     pbf_source: Path,
     osrm_image: str,
     osrm_platform: str,
+    verbose: bool = False,
 ) -> StepResult:
     """Step 2 — OSRM extract/partition/customise for a single profile."""
     result = StepResult(f"OSRM {profile}")
@@ -238,27 +306,68 @@ def _step_osrm_profile(
         osrm_image,
     ]
 
-    # Extract
-    if not force and osrm_base.exists():
+    # Extract — check for .osrm.ebg (produced last) rather than .osrm
+    # (produced early) so a partially-killed extract is properly re-run.
+    ebg_file = osrm_base.with_suffix(".osrm.ebg")
+    if not force and ebg_file.exists():
         console.print(f"  Extract already done for [cyan]{profile}[/], skipping.")
     else:
-        _run_docker(
-            [
-                *common_docker_args,
-                "osrm-extract",
-                "-t",
-                str(threads),
-                "-p",
-                f"/opt/{lua_profile}.lua",
-                f"/data/{pbf_name}",
-            ],
-            label=f"Extracting ({profile}) with {threads} thread(s)",
+        extract_threads = threads
+        while True:
+            t_sub = time.monotonic()
+            for stale in profile_dir.glob(f"{pbf_region}-latest.osrm*"):
+                if stale.suffix != ".pbf":
+                    stale.unlink(missing_ok=True)
+            rc = _run_docker(
+                [
+                    *common_docker_args,
+                    "osrm-extract",
+                    "-t",
+                    str(extract_threads),
+                    "-p",
+                    f"/opt/{lua_profile}.lua",
+                    f"/data/{pbf_name}",
+                ],
+                label=f"Extracting ({profile}) with {extract_threads} thread(s)",
+                verbose=verbose,
+                allow_oom=True,
+            )
+            if rc == _OOM_EXIT_CODE and extract_threads > 1:
+                extract_threads = max(1, extract_threads // 2)
+                console.print(
+                    f"\n  [bold yellow]OOM kill detected (exit 137).[/] "
+                    f"Retrying [cyan]{profile}[/] extract with "
+                    f"[bold]{extract_threads}[/] thread(s) to reduce peak memory.\n"
+                )
+                continue
+            if rc == _OOM_EXIT_CODE:
+                console.print(
+                    Panel(
+                        f"[bold red]Out of memory[/] during osrm-extract for "
+                        f"[cyan]{profile}[/] even with 1 thread.\n\n"
+                        "Increase Docker's memory allocation:\n"
+                        "  [cyan]Docker Desktop[/]: Settings \u2192 Resources \u2192 Memory (\u226512 GB)\n"
+                        "  [cyan]Colima[/]: colima stop && colima start --memory 16\n\n"
+                        "Or build a native image to avoid Rosetta overhead:\n"
+                        "  [cyan]make osrm-build[/]  (uses OSRM_IMAGE / OSRM_PLATFORM from .env)",
+                        title="OOM — osrm-extract",
+                        border_style="red",
+                    )
+                )
+                raise typer.Exit(code=_OOM_EXIT_CODE)
+            if rc != 0:
+                raise typer.Exit(code=rc)
+            break
+        console.print(
+            f"  [green]\u2192[/] Extract complete "
+            f"({_fmt_elapsed(time.monotonic() - t_sub)})"
         )
 
     # Partition
     if not force and osrm_base.with_suffix(".osrm.partition").exists():
         console.print(f"  Partition already done for [cyan]{profile}[/], skipping.")
     else:
+        t_sub = time.monotonic()
         _run_docker(
             [
                 *common_docker_args,
@@ -266,9 +375,15 @@ def _step_osrm_profile(
                 f"/data/{pbf_region}-latest.osrm",
             ],
             label=f"Partitioning ({profile})",
+            verbose=verbose,
+        )
+        console.print(
+            f"  [green]\u2192[/] Partition complete "
+            f"({_fmt_elapsed(time.monotonic() - t_sub)})"
         )
 
     # Customise
+    t_sub = time.monotonic()
     _run_docker(
         [
             *common_docker_args,
@@ -276,6 +391,11 @@ def _step_osrm_profile(
             f"/data/{pbf_region}-latest.osrm",
         ],
         label=f"Customising ({profile})",
+        verbose=verbose,
+    )
+    console.print(
+        f"  [green]\u2192[/] Customise complete "
+        f"({_fmt_elapsed(time.monotonic() - t_sub)})"
     )
 
     if cleanup:
@@ -286,8 +406,14 @@ def _step_osrm_profile(
     return result
 
 
-def _step_photon(*, force: bool) -> StepResult:
-    """Step 3 — download Photon European dataset."""
+def _step_photon(*, force: bool, verbose: bool = False) -> StepResult:
+    """Step 3 — download Photon European dataset.
+
+    Uses the ``rtuszik/photon-docker`` container which has built-in resume
+    support (download state persists on the mounted volume).  We monitor the
+    host-side directory to provide a progress bar and parse container stdout
+    for milestone messages.
+    """
     result = StepResult("Photon dataset")
     t0 = time.monotonic()
 
@@ -296,33 +422,130 @@ def _step_photon(*, force: bool) -> StepResult:
     photon_data = DOCKER_DIR / "photon-data"
     photon_data.mkdir(parents=True, exist_ok=True)
 
-    if not force and (photon_data / "search_index").is_dir():
+    # The container considers the index present when this directory exists.
+    node_dir = photon_data / "photon_data" / "node_1"
+    temp_dir = photon_data / "temp"
+
+    # -- State detection -------------------------------------------------------
+    if not force and node_dir.is_dir():
+        size_gb = _dir_size(photon_data) / (1024**3)
         console.print(
-            f"  Photon data already present at [cyan]{photon_data / 'search_index'}[/], "
-            "skipping."
+            f"  [green]Photon data already present[/] "
+            f"([cyan]{size_gb:.1f} GB[/] at {node_dir}), skipping."
         )
         result.mark("skipped", time.monotonic() - t0)
         return result
 
-    _run_docker(
-        [
-            "-e",
-            "REGION=europe",
-            "-e",
-            "INITIAL_DOWNLOAD=TRUE",
-            "-v",
-            f"{photon_data}:/photon/data",
-            "rtuszik/photon-docker:latest",
-        ],
-        label="Downloading Photon dataset",
-    )
+    if temp_dir.is_dir() and any(temp_dir.iterdir()):
+        existing_gb = _dir_size(temp_dir) / (1024**3)
+        console.print(
+            f"  [yellow]Partial download detected[/] ({existing_gb:.1f} GB in temp), "
+            "container will resume."
+        )
+    else:
+        console.print("  Starting fresh Photon download (~60 GB for europe).")
 
-    console.print(f"  [green]Photon data downloaded to[/] {photon_data}/")
+    # -- Run container with progress monitoring --------------------------------
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-e",
+        "REGION=europe",
+        "-e",
+        "INITIAL_DOWNLOAD=TRUE",
+        "-v",
+        f"{photon_data}:/photon/data",
+        "rtuszik/photon-docker:latest",
+    ]
+
+    tail: deque[str] = deque(maxlen=_TAIL_LINES)
+    stop_event = threading.Event()
+
+    _MILESTONES: dict[str, str] = {
+        "Downloading": "Downloading Photon dataset\u2026",
+        "Extracting": "Extracting search index\u2026",
+        "erifying checksum": "Verifying checksum\u2026",
+        "Moving": "Moving index into place\u2026",
+        "health check": "Running health check\u2026",
+        "Starting Photon": "Starting Photon server\u2026",
+        "Sequential download process completed": "Download & extraction complete.",
+    }
+    seen_milestones: set[str] = set()
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    assert proc.stdout is not None
+
+    def _poll_size() -> None:
+        """Background thread: update the progress bar with directory size."""
+        while not stop_event.is_set():
+            watched = temp_dir if temp_dir.is_dir() else photon_data
+            size = _dir_size(watched)
+            progress.update(size_task, completed=size)
+            stop_event.wait(2.0)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=None),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        size_task = progress.add_task("Photon data", total=None)
+
+        monitor = threading.Thread(target=_poll_size, daemon=True)
+        monitor.start()
+
+        for line in proc.stdout:
+            stripped = line.rstrip()
+            tail.append(stripped)
+
+            for key, msg in _MILESTONES.items():
+                if key in stripped and key not in seen_milestones:
+                    seen_milestones.add(key)
+                    progress.console.print(f"  [cyan]\u2192[/] {msg}")
+                    break
+
+            if verbose:
+                progress.console.print(f"    {rich_escape(stripped)}")
+
+        returncode = proc.wait()
+        stop_event.set()
+        monitor.join(timeout=5)
+
+    if returncode != 0:
+        console.print(
+            f"[bold red]Photon container failed (exit {returncode}):[/]\n"
+            f"  {shlex.join(cmd)}"
+        )
+        if tail:
+            console.print("[dim]Last output lines:[/]")
+            for ln in tail:
+                console.print(f"  {rich_escape(ln)}")
+        raise typer.Exit(code=returncode)
+
+    for lock in photon_data.rglob("*.lock"):
+        lock.unlink(missing_ok=True)
+    console.print("  Removed stale OpenSearch lock files.")
+
+    elapsed = time.monotonic() - t0
+    size_gb = _dir_size(photon_data) / (1024**3)
     console.print(
-        "  For air-gap deployment, build a custom image — "
+        f"  [green]Photon data ready:[/] [cyan]{size_gb:.1f} GB[/] "
+        f"in {_fmt_elapsed(elapsed)}"
+    )
+    console.print(
+        "  For air-gap deployment, build a custom image \u2014 "
         "see [cyan]docker/photon/README.md[/]"
     )
-    result.mark("completed", time.monotonic() - t0)
+    result.mark("completed", elapsed)
     return result
 
 
@@ -362,6 +585,12 @@ def prepare(
             ),
         ),
     ] = 4,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v", help="Stream full Docker output instead of a spinner."
+        ),
+    ] = False,
 ) -> None:
     """Download and process geodata for Nominatim, OSRM, and Photon."""
     console.print(
@@ -386,34 +615,44 @@ def prepare(
     results: list[StepResult] = []
 
     # Step 1 — PBF download
+    pbf_dest = DOCKER_DIR / "nominatim" / "data" / pbf_name
     if not skip_nominatim or not skip_osrm:
         console.rule("[bold]Step 1: Download PBF[/]")
-        pbf_dest = DOCKER_DIR / "nominatim" / "data" / pbf_name
-        results.append(
-            _step_download_pbf(force=force, pbf_url=pbf_url, pbf_dest=pbf_dest)
-        )
+        try:
+            results.append(
+                _step_download_pbf(force=force, pbf_url=pbf_url, pbf_dest=pbf_dest)
+            )
+        except SystemExit:
+            r = StepResult("Download PBF")
+            r.mark("failed", 0.0)
+            results.append(r)
     else:
         r = StepResult("Download PBF")
         r.mark("skipped", 0.0)
         results.append(r)
-        pbf_dest = DOCKER_DIR / "nominatim" / "data" / pbf_name
 
     # Step 2 — OSRM profiles
     if not skip_osrm:
         for profile in PROFILES:
-            results.append(
-                _step_osrm_profile(
-                    profile,
-                    force=force,
-                    cleanup=cleanup,
-                    threads=threads,
-                    pbf_name=pbf_name,
-                    pbf_region=pbf_region,
-                    pbf_source=pbf_dest,
-                    osrm_image=osrm_image,
-                    osrm_platform=osrm_platform,
+            try:
+                results.append(
+                    _step_osrm_profile(
+                        profile,
+                        force=force,
+                        cleanup=cleanup,
+                        threads=threads,
+                        pbf_name=pbf_name,
+                        pbf_region=pbf_region,
+                        pbf_source=pbf_dest,
+                        osrm_image=osrm_image,
+                        osrm_platform=osrm_platform,
+                        verbose=verbose,
+                    )
                 )
-            )
+            except SystemExit:
+                r = StepResult(f"OSRM {profile}")
+                r.mark("failed", 0.0)
+                results.append(r)
     else:
         for profile in PROFILES:
             r = StepResult(f"OSRM {profile}")
@@ -422,14 +661,22 @@ def prepare(
 
     # Step 3 — Photon
     if not skip_photon:
-        results.append(_step_photon(force=force))
+        try:
+            results.append(_step_photon(force=force, verbose=verbose))
+        except SystemExit:
+            r = StepResult("Photon dataset")
+            r.mark("failed", 0.0)
+            results.append(r)
     else:
         r = StepResult("Photon dataset")
         r.mark("skipped", 0.0)
         results.append(r)
 
-    # Summary
+    # Summary (always shown, even when steps failed)
     _print_summary(results)
+
+    if any(r.status == "failed" for r in results):
+        raise typer.Exit(code=1)
 
 
 def _print_summary(results: list[StepResult]) -> None:
@@ -442,18 +689,26 @@ def _print_summary(results: list[StepResult]) -> None:
     status_style = {
         "completed": "[green]completed[/]",
         "skipped": "[yellow]skipped[/]",
+        "failed": "[bold red]failed[/]",
         "pending": "[dim]pending[/]",
     }
 
     for r in results:
-        elapsed = f"{r.elapsed:.1f}s" if r.elapsed > 0 else "—"
+        elapsed = _fmt_elapsed(r.elapsed) if r.elapsed > 0 else "\u2014"
         table.add_row(r.name, status_style.get(r.status, r.status), elapsed)
 
     console.print()
     console.print(table)
     console.print()
-    console.print("[bold green]Data preparation complete.[/]")
+
+    if any(r.status == "failed" for r in results):
+        console.print("[bold red]Some steps failed \u2014 see output above.[/]")
+    else:
+        console.print("[bold green]Data preparation complete.[/]")
+
     console.print(
         "Start the stack with:\n"
-        "  [cyan]cd docker && docker compose --env-file ../.env up -d[/]"
+        "  [cyan]cd docker && docker compose --env-file ../.env up -d[/]\n"
+        "or\n"
+        "  [cyan]cd .. && make up"
     )

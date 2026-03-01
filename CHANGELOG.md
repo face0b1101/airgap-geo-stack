@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-01
+
+### Added
+
+- **Cross-platform Docker builds** — `FORCE_PLATFORM` env var forces all services to a target architecture (e.g. `linux/amd64` for airgap export from ARM64 hosts)
+- **`docker/docker-compose.platform.yml`** override file that constrains every service to `${FORCE_PLATFORM}`; auto-included by the Makefile when the variable is set
+- **`make osrm-build` target** — builds OSRM v6.0.0 from source, respecting `OSRM_IMAGE` / `OSRM_PLATFORM` from `.env`
+- **`docker/build-osrm.sh`** — replaces `build-osrm-arm64.sh`; accepts `--platform` and `--tag` flags for any architecture; detects cross-compilation and disables LTO to avoid QEMU jobserver bug
+- **`prepare-data --verbose`** (`-v`) flag streams full Docker output instead of a spinner
+- **OOM auto-retry** for `osrm-extract` — detects exit 137 and retries with halved thread count; prints Docker Desktop / Colima memory advice if it fails at 1 thread
+- **Photon progress monitoring** — real-time progress bar tracking directory size, resume detection for partial downloads, and milestone parsing from container stdout
+- Per-step elapsed time display and `failed` status in the preparation summary table
+
+### Changed
+
+- **OSRM image fully configurable via `.env`** — `OSRM_IMAGE` and `OSRM_PLATFORM` are the single source of truth for all OSRM operations (data preparation, runtime, image building)
+- Makefile loads `.env` and exports key variables; `COMPOSE` definition conditionally includes `docker-compose.platform.yml` when `FORCE_PLATFORM` is set
+- Docker Compose: Photon switched from named volume to bind mount (`./photon-data`); postcodes-api `POSTGRES_DATABASE` corrected to `postcodesio`; postcodes-api ports exposed directly (`8000:8000`); Photon container gets `PUID`/`PGID` env vars
+- OSRM extract idempotency now checks `.osrm.ebg` (produced last) instead of `.osrm` (produced early) so partially-killed extracts are properly re-run
+- `prepare-data` error handling: failing steps no longer abort the entire run — remaining steps continue and the summary shows failed items with a non-zero exit code
+- README: Quick Start walkthrough (1–5), cross-platform builds section, new env vars (`OSRM_IMAGE`, `OSRM_PLATFORM`, `OSRM_DATA`, `FORCE_PLATFORM`) in config table
+- Air-gap image export uses `OSRM_IMAGE` from `.env` and respects `FORCE_PLATFORM` for `docker pull`
+- Updated `docker/README.md` and `docker/osrm/README.md` for the new build workflow
+- Notebooks re-executed with latest outputs
+
+### Removed
+
+- `docker/build-osrm-arm64.sh` — superseded by `docker/build-osrm.sh`
+- `photon-data` named Docker volume — replaced by a bind mount
+
 ## [1.3.0] - 2026-02-28
 
 ### Added
@@ -79,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **In-process TTL cache** (`cache.py`) for all read endpoints, configurable via `CACHE_TTL_SECONDS` / `CACHE_MAX_SIZE`
 - **API test suite** (`tests/test_api/`) covering all endpoints and health checks
 - Configurable PBF region via `PBF_URL` / `PBF_REGION` environment variables — any Geofabrik extract can be used
-- ARM64 / Apple Silicon support: `OSRM_IMAGE` / `OSRM_PLATFORM` env vars and `docker/build-osrm-arm64.sh` helper script
+- ARM64 / Apple Silicon support: `OSRM_IMAGE` / `OSRM_PLATFORM` env vars and `docker/build-osrm.sh` helper script
 - `prepare-data.sh` improvements: `--force` flag, `--threads N` for constrained-RAM machines, idempotent stage skipping
 
 ### Changed
@@ -107,4 +137,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.1.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.0.0...v1.1.0
 [1.2.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...v1.2.0
 [1.3.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.2.0...v1.3.0
-[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.3.0...HEAD
+[1.4.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.3.0...v1.4.0
+[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.4.0...HEAD
