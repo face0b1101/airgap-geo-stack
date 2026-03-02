@@ -19,13 +19,18 @@ services:
     image: mediagis/nominatim:5.2
     container_name: nominatim
     restart: unless-stopped
-    shm_size: 1g
+    shm_size: 4g
     environment:
       - PBF_PATH=/nominatim/data/${PBF_REGION:-great-britain}-latest.osm.pbf
-      - IMPORT_GB_POSTCODES=true
+      - IMPORT_GB_POSTCODES=/nominatim/data/gb_postcodes.csv.gz
       - IMPORT_STYLE=full
       - NOMINATIM_PASSWORD=nominatim
       - FREEZE=true
+      - POSTGRES_SHARED_BUFFERS=1GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=2GB
+      - POSTGRES_AUTOVACUUM_WORK_MEM=512MB
+      - POSTGRES_WORK_MEM=32MB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=4GB
     volumes:
       - nominatim-data:/var/lib/postgresql/16/main
       - nominatim-flatnode:/nominatim/flatnode

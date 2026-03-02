@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`make status` target** — probes all backend services (API, Nominatim, Photon, OSRM, postcodes.io) and prints a colour-coded readiness table with HTTP status and latency
+- **GB postcodes pre-download** — `prepare-data` now downloads `gb_postcodes.csv.gz` from nominatim.org as step 1b, eliminating the runtime SCP fetch that would fail in air-gapped environments
+
+### Changed
+
+- **Nominatim PostgreSQL tuning** — `shm_size` increased from `1g` to `4g`; added `POSTGRES_MAINTENANCE_WORK_MEM=2GB` and other overrides to prevent OOM kills during search index creation on machines with ~25 GB RAM
+- **`IMPORT_GB_POSTCODES`** changed from `true` (triggers runtime SCP download) to a container-internal file path (`/nominatim/data/gb_postcodes.csv.gz`) so Nominatim symlinks the pre-downloaded file instead
 
 ## [1.4.0] - 2026-03-01
 

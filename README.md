@@ -151,6 +151,7 @@ Then build and prepare:
 make osrm-build          # builds OSRM v6 for linux/amd64
 make prepare             # processes data using the amd64 image
 make up                  # runs all services forced to linux/amd64
+make status              # checks that all services are running and ready
 ```
 
 The upstream `osrm/osrm-backend` image on Docker Hub is v5.26.0 (amd64-only).

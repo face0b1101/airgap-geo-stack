@@ -260,6 +260,28 @@ def _step_download_pbf(
     return result
 
 
+GB_POSTCODES_URL = "https://nominatim.org/data/gb_postcodes.csv.gz"
+
+
+def _step_download_gb_postcodes(*, force: bool) -> StepResult:
+    """Step 1b — download GB postcodes for Nominatim."""
+    result = StepResult("GB postcodes")
+    t0 = time.monotonic()
+
+    dest = DOCKER_DIR / "nominatim" / "data" / "gb_postcodes.csv.gz"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.exists() and not force:
+        console.print(f"  [green]GB postcodes already present:[/] {dest}")
+        result.mark("completed", time.monotonic() - t0)
+        return result
+
+    _download_file(GB_POSTCODES_URL, dest)
+    console.print(f"  [green]GB postcodes ready:[/] {dest}")
+    result.mark("completed", time.monotonic() - t0)
+    return result
+
+
 def _step_osrm_profile(
     profile: str,
     *,
@@ -628,6 +650,20 @@ def prepare(
             results.append(r)
     else:
         r = StepResult("Download PBF")
+        r.mark("skipped", 0.0)
+        results.append(r)
+
+    # Step 1b — GB postcodes (needed by Nominatim for enhanced postcode geocoding)
+    if not skip_nominatim:
+        console.rule("[bold]Step 1b: GB postcodes[/]")
+        try:
+            results.append(_step_download_gb_postcodes(force=force))
+        except SystemExit:
+            r = StepResult("GB postcodes")
+            r.mark("failed", 0.0)
+            results.append(r)
+    else:
+        r = StepResult("GB postcodes")
         r.mark("skipped", 0.0)
         results.append(r)
 

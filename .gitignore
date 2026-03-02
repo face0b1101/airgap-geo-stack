@@ -134,6 +134,7 @@ dmypy.json
 # Docker data / air-gap assets
 docker/nominatim/data/*.osm.pbf
 docker/nominatim/data/*.pbf
+docker/nominatim/data/*.csv.gz
 docker/osrm/data/
 *.tar
 photon-data/
