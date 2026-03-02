@@ -106,6 +106,41 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## Docker Access
+
+This project relies heavily on Docker for its service stack. AI assistants
+running in sandboxed environments (e.g. Cursor) often cannot reach the Docker
+daemon under default sandbox restrictions.
+
+**Always request elevated permissions for Docker commands.** Use
+`required_permissions: ["all"]` for any `docker` or `docker compose` command
+(including `docker ps`, `docker logs`, `docker stats`, `docker volume`,
+`docker inspect`, etc.). Read-only Docker queries still require the Docker
+socket, which the sandbox blocks.
+
+```
+# Correct — works reliably
+Shell(command="docker ps", required_permissions=["all"])
+
+# Wrong — will silently fail with empty output or exit code 1
+Shell(command="docker ps")
+Shell(command="docker ps", required_permissions=["full_network"])
+```
+
+Key Docker operations in this project:
+
+| Command                                          | Purpose                            |
+| ------------------------------------------------ | ---------------------------------- |
+| `make up` / `make <profile>-up`                  | Start services                     |
+| `make down` / `make <profile>-down`              | Stop services                      |
+| `make status`                                    | Probe all service endpoints        |
+| `docker compose -f docker/docker-compose.yml …`  | Direct compose control             |
+| `docker logs <container>`                        | Inspect container output           |
+| `docker stats <container> --no-stream`           | Check resource usage               |
+| `docker volume ls / rm`                          | Manage persistent data volumes     |
+
+______________________________________________________________________
+
 ## AI Assistant Operating Rules
 
 Concise policy reference for all coding agents touching this repository. Keep responses factual and avoid speculative language.
