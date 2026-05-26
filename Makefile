@@ -1,4 +1,4 @@
-.PHONY: install lint format test test-live test-all precommit run check prepare serve osrm-build up down ps status
+.PHONY: install lint format test test-live test-all smoke-test precommit run check prepare serve osrm-build up down ps status
 
 # Load .env so that FORCE_PLATFORM, OSRM_IMAGE, etc. are available to all
 # targets (including `make prepare` which shells out to uv/python).
@@ -22,6 +22,9 @@ test-live:
 
 test-all:
 	uv run pytest -m "" -v
+
+smoke-test:  ## HTTP smoke checks against running Docker stack (see scripts/smoke-test.sh)
+	@./scripts/smoke-test.sh
 
 precommit:
 	uv run pre-commit run --all-files

@@ -45,6 +45,16 @@ make prepare ARGS="--skip-photon"     # skip the ~60 GB Photon download
 make up
 ```
 
+6. **Verify the stack**
+
+```bash
+make status              # quick per-service readiness (HTTP probes)
+make smoke-test          # smoke-test backends + API endpoints
+make test-live           # full pytest integration suite (optional)
+```
+
+See [Smoke testing](#smoke-testing) for manual `curl` examples.
+
 ______________________________________________________________________
 
 ## Services
@@ -62,7 +72,9 @@ ______________________________________________________________________
 | **postcodes.io DB**  | `idealpostcodes/postcodes.io.db:latest` | internal | PostgreSQL backing store                                  |
 | **Airgap API**       | *(built locally)*                       | `5050`   | Unified FastAPI service exposing all four services        |
 
-See [`docker/README.md`](docker/README.md) for full deployment and air-gap transfer instructions.
+See [`docker/README.md`](docker/README.md) for deployment details and
+[`docs/AIRGAP_TRANSFER.md`](docs/AIRGAP_TRANSFER.md) for the full air-gap
+USB export/import guide.
 
 ______________________________________________________________________
 
@@ -159,7 +171,62 @@ If you build from source you get v6.0.0 — the data formats are incompatible,
 so the same image version must be used for both data preparation and runtime.
 `make osrm-build` ensures the built image tag matches `OSRM_IMAGE` in `.env`.
 
-See [`docker/README.md`](docker/README.md) for full deployment, configuration, and air-gap transfer instructions.
+See [`docker/README.md`](docker/README.md) for deployment and configuration, and
+[`docs/AIRGAP_TRANSFER.md`](docs/AIRGAP_TRANSFER.md) for the complete USB
+export/import guide (bash, zsh, and fish commands included).
+
+______________________________________________________________________
+
+## Smoke testing
+
+After `make up`, confirm every backend is reachable and the unified API returns
+sensible results.
+
+### Automated checks
+
+| Command | What it does |
+| ------- | ------------ |
+| `make status` | One-line HTTP probe per backend (Nominatim, Photon, OSRM, postcodes.io, API `/health`) |
+| `make smoke-test` | Same backends plus API geocode, postcode, and short route checks |
+| `./scripts/smoke-test.sh --pytest` | Smoke checks, then `make test-live` (full integration tests) |
+| `make test-live` | Pytest suite against live services (`tests/test_live/`) |
+
+`make smoke-test` exits non-zero if any probe fails. Install `jq` for stricter
+JSON assertions on `/health` and `/geocode` (without `jq`, HTTP status codes only).
+
+### Manual `curl` examples
+
+Backend services (defaults from `.env.example`):
+
+```bash
+# Nominatim — import may still be running on first start
+curl -sS "${NOMINATIM_URL:-http://localhost:8080}/status.php" | head
+
+# Photon — reverse geocode probe
+curl -sS "${PHOTON_API:-http://localhost:2322}/api?q=london&limit=1" | head
+
+# OSRM via HAProxy — zero-length route (health-style probe)
+curl -sS "${OSRM_API:-http://localhost:80}/route/v1/driving/-0.1276,51.5034;-0.1276,51.5034"
+
+# postcodes.io
+curl -sS "${POSTCODES_URL:-http://localhost:8000}/postcodes/SW1A2AA"
+```
+
+Airgap API (`API_PORT` defaults to `5050`):
+
+```bash
+API=http://localhost:${API_PORT:-5050}
+
+curl -sS "$API/health" | jq .
+curl -sS "$API/geocode?q=51.5034,-0.1276" | jq .
+curl -sS "$API/postcodes/SW1A2AA" | jq .
+curl -sS -X POST "$API/route" \
+  -H 'Content-Type: application/json' \
+  -d '{"origin":{"lat":51.5034,"lon":-0.1276},"destination":{"lat":51.5074,"lon":-0.1278},"profile":"driving"}' \
+  | jq '.routes[0].distance_m'
+```
+
+Interactive API docs: `http://localhost:5050/docs`.
 
 ______________________________________________________________________
 
@@ -497,10 +564,12 @@ ______________________________________________________________________
 ### Setup
 
 ```bash
-make install    # uv sync - install all dependencies
-make test       # run the pytest suite (excludes live tests)
-make test-live  # run live integration tests (requires running Docker services)
-make test-all   # run all tests including live
+make install      # uv sync - install all dependencies
+make test         # run the pytest suite (excludes live tests)
+make test-live    # run live integration tests (requires running Docker services)
+make test-all     # run all tests including live
+make smoke-test   # HTTP smoke checks (requires running Docker services)
+make status       # per-service readiness probes
 make lint       # ruff check
 make format     # ruff format
 make check      # lint + test combined

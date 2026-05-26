@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-26
+
 ### Added
 
 - **`make status` target** — probes all backend services (API, Nominatim, Photon, OSRM, postcodes.io) and prints a colour-coded readiness table with HTTP status and latency
+- **`make smoke-test` target** and **`scripts/smoke-test.sh`** — HTTP smoke checks for all backends plus API geocode, postcode, and route endpoints; optional `--pytest` runs the live test suite
+- **Smoke testing documentation** in README — Quick Start verification step, automated checks table, and manual `curl` examples
 - **GB postcodes pre-download** — `prepare-data` now downloads `gb_postcodes.csv.gz` from nominatim.org as step 1b, eliminating the runtime SCP fetch that would fail in air-gapped environments
+- **`docs/AIRGAP_TRANSFER.md`** — full USB export/import guide for air-gap deployment
 
 ### Changed
 
 - **Nominatim PostgreSQL tuning** — `shm_size` increased from `1g` to `4g`; added `POSTGRES_MAINTENANCE_WORK_MEM=2GB` and other overrides to prevent OOM kills during search index creation on machines with ~25 GB RAM
 - **`IMPORT_GB_POSTCODES`** changed from `true` (triggers runtime SCP download) to a container-internal file path (`/nominatim/data/gb_postcodes.csv.gz`) so Nominatim symlinks the pre-downloaded file instead
+- FastAPI app version aligned with package version (`1.5.0`)
 
 ## [1.4.0] - 2026-03-01
 
@@ -148,4 +154,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.2.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.1.0...v1.2.0
 [1.3.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.2.0...v1.3.0
 [1.4.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.3.0...v1.4.0
-[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.4.0...HEAD
+[1.5.0]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.4.0...v1.5.0
+[unreleased]: https://github.com/face0b1101/airgap-geo-stack/compare/v1.5.0...HEAD
