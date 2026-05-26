@@ -134,7 +134,7 @@ def create_app() -> FastAPI:
             "Self-hosted, air-gapped geocoding, reverse geocoding, routing, "
             "and UK postcode lookup."
         ),
-        version="1.5.0",
+        version="1.5.1",
         lifespan=_lifespan,
     )
 

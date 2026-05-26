@@ -24,7 +24,7 @@ test-all:
 	uv run pytest -m "" -v
 
 smoke-test:  ## HTTP smoke checks against running Docker stack (see scripts/smoke-test.sh)
-	@./scripts/smoke-test.sh
+	@./scripts/smoke-test.sh $(ARGS)
 
 precommit:
 	uv run pre-commit run --all-files

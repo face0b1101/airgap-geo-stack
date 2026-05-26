@@ -184,15 +184,20 @@ sensible results.
 
 ### Automated checks
 
-| Command | What it does |
-| ------- | ------------ |
-| `make status` | One-line HTTP probe per backend (Nominatim, Photon, OSRM, postcodes.io, API `/health`) |
-| `make smoke-test` | Same backends plus API geocode, postcode, and short route checks |
-| `./scripts/smoke-test.sh --pytest` | Smoke checks, then `make test-live` (full integration tests) |
-| `make test-live` | Pytest suite against live services (`tests/test_live/`) |
+| Command                            | What it does                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `make status`                      | One-line HTTP probe per backend (Nominatim, Photon, OSRM, postcodes.io, API `/health`) |
+| `make smoke-test`                  | Same backends plus API geocode, postcode, and short route checks                       |
+| `make smoke-test ARGS='--skip-osrm'` | Same, but skip probes for services you did not deploy (flags match `make prepare`) |
+| `./scripts/smoke-test.sh --pytest` | Smoke checks, then `make test-live` (full integration tests)                           |
+| `make test-live`                   | Pytest suite against live services (`tests/test_live/`)                                |
 
 `make smoke-test` exits non-zero if any probe fails. Install `jq` for stricter
 JSON assertions on `/health` and `/geocode` (without `jq`, HTTP status codes only).
+
+Skip flags (same names as `make prepare`): `--skip-nominatim`, `--skip-osrm`,
+`--skip-photon`. Skipped backends are not probed; `GET /health` only requires
+non-skipped upstreams to be up; `--skip-osrm` also skips `POST /route`.
 
 ### Manual `curl` examples
 
